@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Chrome browser profiles (large, machine-specific)
+profiles/
+
+# Data / crawl output
+data/
+
+# Environment & secrets
+.env
+.env.*
+
+# TypeScript
+*.tsbuildinfo
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor / IDE
+.vscode/
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code local settings
+.claude/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Optional: lock file (uncomment if you don't want to track it)
+# package-lock.json

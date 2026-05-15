@@ -1,0 +1,50 @@
+{
+  "profileDir": "./profiles/automation-profile",
+  "outputPath": "./data/crawl-store.json",
+  "chrome": {
+    "useSystemProfile": true,
+    "mode": "cdp"
+  },
+  "targets": [
+    "https://www.reddit.com/r/wallstreetbets/search/?q=flair%3ADD&include_over_18=on&sort=new"
+  ],
+  "siteRules": {
+    "xCom": {
+      "maxChars": 5000,
+      "maxCharsPerComment": 500,
+      "contentLevel": "feed",
+      "stallLimit": 1
+    },
+    "redditCom": {
+      "maxChars": 5000,
+      "maxCharsPerComment": 500,
+      "contentLevel": "post",
+      "stallLimit": 1,
+      "maxFeedScrolls": 1
+    },
+    "bloombergCom": {
+      "maxChars": 5000,
+      "maxCharsPerComment": 500,
+      "contentLevel": "post",
+      "stallLimit": 1
+    }
+  },
+  "behavior": {
+    "navigationTimeoutMs": 30000,
+    "waitMinMs": 800,
+    "waitMaxMs": 1500,
+    "retriesPerTarget": 0,
+    "maxPagesPerRun": 1
+  },
+  "schedule": {
+    "enabled": false,
+    "intervalMs": 300000,
+    "maxRuns": 1
+  },
+  "clipboard": {
+    "maxChars": 200000
+  },
+  "dedup": {
+    "windowDays": 5
+  }
+}

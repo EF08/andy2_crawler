@@ -1,0 +1,33 @@
+{
+  "name": "andy2_crawler",
+  "version": "1.0.0",
+  "description": "Credentialed multi-site crawler for X, Reddit, and Bloomberg.",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "crawl": "tsx src/main.ts",
+    "crawl:dry": "tsx src/main.ts --dry-run",
+    "smoke": "tsx src/smoke.ts",
+    "test:bloomberg": "tsx src/scripts/test-bloomberg-live.ts",
+    "test:bloomberg-5": "tsx src/scripts/test-bloomberg-5tries.ts",
+    "dedup": "tsx src/store/deduplicate.ts",
+    "copy": "tsx src/copyContent.ts",
+    "copy:latest": "tsx src/copyContent.ts crawler.config.json 50000",
+    "login": "start \"\" \"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --user-data-dir=%CD%\\profiles\\automation-profile --profile-directory=Default"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "luxon": "^3.7.2",
+    "playwright": "^1.58.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.7.1",
+    "@types/node": "^25.2.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
