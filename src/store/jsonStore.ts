@@ -94,6 +94,31 @@ export class JsonStore {
     return { texts, urls };
   }
 
+  /** All snapshots recorded for one run (used for backend sync after a crawl). */
+  getSnapshotsByRun(runId: string): CrawlSnapshot[] {
+    const out: CrawlSnapshot[] = [];
+    for (const bySite of Object.values(this.store.history)) {
+      for (const snaps of Object.values(bySite)) {
+        for (const snap of snaps) if (snap.runId === runId) out.push(snap);
+      }
+    }
+    return out;
+  }
+
+  /** Every snapshot in the store, deduped by id (used for backend backfill). */
+  getAllSnapshots(): CrawlSnapshot[] {
+    const byId = new Map<string, CrawlSnapshot>();
+    for (const bySite of Object.values(this.store.history)) {
+      for (const snaps of Object.values(bySite)) {
+        for (const snap of snaps) byId.set(snap.id, snap);
+      }
+    }
+    for (const byUrl of Object.values(this.store.latest)) {
+      for (const snap of Object.values(byUrl)) byId.set(snap.id, snap);
+    }
+    return [...byId.values()];
+  }
+
   appendError(record: Omit<CrawlErrorRecord, "capturedAtIso" | "capturedAtLocal">): void {
     const now = DateTime.local();
     this.store.errors.push({

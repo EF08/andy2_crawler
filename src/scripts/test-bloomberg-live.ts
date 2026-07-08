@@ -20,7 +20,7 @@ function isRobotPage(title: string): boolean {
 
 async function attempt(
   session: { context: { pages: () => any[]; newPage: () => Promise<any> } },
-  config: { behavior: { waitMinMs: number; waitMaxMs: number; navigationTimeoutMs: number } },
+  config: { behavior: import("../config/types").Behavior },
   attemptNumber: 1 | 2,
 ): Promise<{ success: boolean; stage: string; title: string }> {
   const page = session.context.pages()[0] ?? (await session.context.newPage());

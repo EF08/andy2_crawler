@@ -20,7 +20,7 @@ function isRobotPage(title: string): boolean {
 
 async function ensureOnLatest(
   page: Page,
-  config: { behavior: { waitMinMs: number; waitMaxMs: number; navigationTimeoutMs: number } },
+  config: { behavior: import("../config/types").Behavior },
 ): Promise<{ ok: boolean; articleUrl?: string }> {
   await page.goto(LATEST_URL, { waitUntil: "domcontentloaded" });
   await new Promise((r) => setTimeout(r, 5000));

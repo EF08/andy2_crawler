@@ -63,6 +63,25 @@ npm run smoke
 npm run crawl -- --config ./my-config.json
 ```
 
+## 6b) Backend sync (query your data from Claude, anywhere)
+
+Every run automatically pushes its snapshots to `bfleaderboard_backend` on Render
+(when `backend.enabled` is `true` in the config). From there the data is queryable
+from claude.ai on any device via the "Crawler" MCP connector
+(`https://bfleaderboard-backend.onrender.com/api/crawler/mcp` — same access password
+as the Maor connector).
+
+- The ingest key lives in `backend.local.json` (gitignored — never commit it).
+  Alternatives: env var `CRAWLER_INGEST_KEY`, or `backend.ingestKey` in the config.
+- Push the ENTIRE local store (idempotent, safe to rerun):
+
+```bash
+npm run sync
+```
+
+- Sync failures never break a crawl run — snapshots stay in the local store and the
+  next `npm run sync` catches the backend up.
+
 ## 7) Common issues
 
 - Chrome profile in use / won't launch:

@@ -51,6 +51,18 @@ export const DedupSchema = z.object({
   windowDays: z.number().int().min(1).max(365).default(5),
 });
 
+export const BackendSchema = z.object({
+  /** Push snapshots to the remote backend (bfleaderboard_backend) after each run. */
+  enabled: z.boolean().default(false),
+  baseUrl: z.string().url().default("https://bfleaderboard-backend.onrender.com"),
+  ingestPath: z.string().default("/api/crawler/ingest"),
+  /** Shared secret sent as x-crawler-key. Prefer env CRAWLER_INGEST_KEY or the gitignored
+   *  backend.local.json over committing it here (see src/sync/backendSync.ts). */
+  ingestKey: z.string().optional(),
+  /** Snapshots per ingest request (keeps request bodies well under the backend's 5mb limit). */
+  batchSize: z.number().int().min(1).max(500).default(40),
+});
+
 export const CrawlerConfigSchema = z.object({
   profileDir: z.string().min(1),
   outputPath: z.string().min(1),
@@ -65,6 +77,12 @@ export const CrawlerConfigSchema = z.object({
   chrome: ChromeProfileSchema.default({ useSystemProfile: false, mode: "persistent" }),
   clipboard: ClipboardSchema.default({ maxChars: 50000 }),
   dedup: DedupSchema.default({ windowDays: 5 }),
+  backend: BackendSchema.default({
+    enabled: false,
+    baseUrl: "https://bfleaderboard-backend.onrender.com",
+    ingestPath: "/api/crawler/ingest",
+    batchSize: 40,
+  }),
 });
 
 export type SiteRule = z.infer<typeof SiteRuleSchema>;
@@ -72,6 +90,7 @@ export type Behavior = z.infer<typeof BehaviorSchema>;
 export type Schedule = z.infer<typeof ScheduleSchema>;
 export type ClipboardConfig = z.infer<typeof ClipboardSchema>;
 export type DedupConfig = z.infer<typeof DedupSchema>;
+export type BackendConfig = z.infer<typeof BackendSchema>;
 export type CrawlerConfig = z.infer<typeof CrawlerConfigSchema>;
 
 export type SiteKey = "x.com" | "reddit.com" | "bloomberg.com";

@@ -13,6 +13,7 @@ data/
 # Environment & secrets
 .env
 .env.*
+backend.local.json
 
 # TypeScript
 *.tsbuildinfo

@@ -5,6 +5,7 @@ import { launchSession } from "./browser/session";
 import { JsonStore } from "./store/jsonStore";
 import { runOnePass } from "./crawl/engine";
 import { deduplicateStore } from "./store/deduplicate";
+import { pushSnapshots } from "./sync/backendSync";
 
 type CliArgs = {
   configPath: string;
@@ -49,6 +50,15 @@ async function start(): Promise<void> {
       console.log(`[main] Starting crawl run ${runId}`);
       await runOnePass(session.context, config, store, runId, args.dryRun);
       console.log(`[main] Completed crawl run ${runId}`);
+
+      // Push this run's snapshots to the remote backend (never fatal to the crawl loop)
+      if (!args.dryRun && config.backend.enabled) {
+        try {
+          await pushSnapshots(config.backend, store.getSnapshotsByRun(runId), "sync");
+        } catch (error) {
+          console.warn(`[sync] Backend push failed: ${(error as Error).message}`);
+        }
+      }
 
       // Auto-dedup after each run
       if (!args.dryRun) {

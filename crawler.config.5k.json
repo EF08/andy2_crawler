@@ -11,13 +11,13 @@
   ],
   "siteRules": {
     "xCom": {
-      "maxChars": 40000,
+      "maxChars": 5000,
       "maxCharsPerComment": 700,
       "contentLevel": "feed",
       "stallLimit": 3
     },
     "redditCom": {
-      "maxChars": 40000,
+      "maxChars": 5000,
       "maxCharsPerComment": 900,
       "contentLevel": "post",
       "stallLimit": 3,
