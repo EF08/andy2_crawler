@@ -82,6 +82,21 @@ npm run sync
 - Sync failures never break a crawl run — snapshots stay in the local store and the
   next `npm run sync` catches the backend up.
 
+## 6c) Always-on PC agent (remote-triggered scrapes from Claude)
+
+`npm run agent` starts a lightweight daemon that polls the backend every 30s
+(heartbeat + job queue + schedule). With it running, Claude — from any device via
+the Crawler MCP connector — can:
+
+- `crawler_run_now` → your PC starts a scrape within ~30s
+- `crawler_set_schedule` → recurring scrapes every N hours (while the PC is on)
+- `crawler_status` → is the PC online? what ran recently?
+
+It starts automatically at logon via a shim in the Windows Startup folder that runs
+`scripts\start-agent.vbs` hidden (logs go to `data\agent.log`). A lockfile prevents
+double agents. To stop it: Task Manager → end the `node` process running tsx, or
+delete the Startup shim to disable autostart.
+
 ## 7) Common issues
 
 - Chrome profile in use / won't launch:

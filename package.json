@@ -12,6 +12,7 @@
     "test:bloomberg-5": "tsx src/scripts/test-bloomberg-5tries.ts",
     "dedup": "tsx src/store/deduplicate.ts",
     "sync": "tsx src/scripts/sync-backfill.ts",
+    "agent": "tsx src/agent/agent.ts",
     "copy": "tsx src/copyContent.ts",
     "copy:latest": "tsx src/copyContent.ts crawler.config.json 50000",
     "login": "start \"\" \"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --user-data-dir=%CD%\\profiles\\automation-profile --profile-directory=Default"
