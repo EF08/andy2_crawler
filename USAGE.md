@@ -1,6 +1,7 @@
 # Simple Usage Guide
 
-This app crawls `x.com`, Reddit, and Bloomberg using a real Chrome window.
+This app crawls `x.com`, Reddit, and Bloomberg using a real Chrome window,
+and pulls market/business news + SEC EDGAR filings from HTTP feeds (no browser).
 
 ## 1) One-time setup
 
@@ -62,6 +63,27 @@ npm run smoke
 ```bash
 npm run crawl -- --config ./my-config.json
 ```
+
+## 5b) Market news + EDGAR feeds (no browser)
+
+Every normal crawl run first pulls HTTP feeds (config block `feeds` in
+`crawler.config.json`): GlobeNewswire category RSS (earnings / M&A / bankruptcy,
+with tickers), Google News RSS (Bloomberg/Reuters/WSJ), and the SEC EDGAR
+current-filings Atom feed (8-K). One snapshot per headline/filing, stored under
+sites `globenewswire.com`, `news.google.com`, `sec.gov`. Snapshot ids are
+deterministic (hash of site+URL), so re-pulls never duplicate anything. Each
+source collects newest-first up to its `maxChars` budget per pull.
+
+Feeds-only pull (finishes in seconds, Chrome never launches):
+
+```bash
+npm run feeds        # real pull + backend push
+npm run feeds:dry    # fetch + count only, stores nothing
+```
+
+While the always-on agent runs, it does a feeds-only pull every 15 minutes when
+idle (remote-controlled: `crawler_set_schedule({feedsEveryMinutes})`, 0 disables;
+`crawler_run_now({configFile:"feeds"})` triggers one on demand).
 
 ## 6b) Backend sync (query your data from Claude, anywhere)
 
