@@ -1,14 +1,11 @@
 {
-  "profileDir": "./profiles/automation-profile",
-  "outputPath": "./data/crawl-store.json",
+  "profileDir": "C:\\Users\\andyf\\andy2_crawler\\profiles\\automation-profile",
+  "outputPath": "C:\\Users\\andyf\\andy2_crawler\\data\\crawl-store.json",
   "chrome": {
     "useSystemProfile": true,
     "mode": "cdp"
   },
-  "targets": [
-    "https://x.com/home",
-    "https://www.reddit.com/r/wallstreetbets/search/?q=flair%3ADD&include_over_18=on&sort=new"
-  ],
+  "targets": [],
   "siteRules": {
     "xCom": {
       "maxChars": 40000,

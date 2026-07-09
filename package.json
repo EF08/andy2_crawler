@@ -7,6 +7,8 @@
     "build": "tsc -p tsconfig.json",
     "crawl": "tsx src/main.ts",
     "crawl:dry": "tsx src/main.ts --dry-run",
+    "feeds": "tsx src/main.ts --config crawler.config.feeds.json",
+    "feeds:dry": "tsx src/main.ts --config crawler.config.feeds.json --dry-run",
     "smoke": "tsx src/smoke.ts",
     "test:bloomberg": "tsx src/scripts/test-bloomberg-live.ts",
     "test:bloomberg-5": "tsx src/scripts/test-bloomberg-5tries.ts",
@@ -22,6 +24,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "fast-xml-parser": "^5.9.3",
     "luxon": "^3.7.2",
     "playwright": "^1.58.2",
     "zod": "^4.3.6"

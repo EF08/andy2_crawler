@@ -32,7 +32,7 @@ export class JsonStore {
     fs.writeFileSync(this.outputPath, JSON.stringify(this.store, null, 2), "utf-8");
   }
 
-  upsertSnapshot(snapshot: CrawlSnapshot): void {
+  private applyUpsert(snapshot: CrawlSnapshot): void {
     this.store.latest[snapshot.site] ??= {};
     this.store.latest[snapshot.site][snapshot.canonicalUrl] = snapshot;
 
@@ -46,8 +46,23 @@ export class JsonStore {
     const localDate = DateTime.fromISO(snapshot.capturedAtIso).toFormat("yyyy-LL-dd");
     this.store.index.byDate[localDate] ??= [];
     this.store.index.byDate[localDate].push(snapshot.id);
+  }
 
+  upsertSnapshot(snapshot: CrawlSnapshot): void {
+    this.applyUpsert(snapshot);
     this.persist();
+  }
+
+  /** Upsert a batch with a single write to disk (feeds can add dozens per pull). */
+  upsertMany(snapshots: CrawlSnapshot[]): void {
+    if (snapshots.length === 0) return;
+    for (const snapshot of snapshots) this.applyUpsert(snapshot);
+    this.persist();
+  }
+
+  /** True if any snapshot for this site+canonicalUrl is already stored. */
+  hasSnapshotFor(site: string, canonicalUrl: string): boolean {
+    return Boolean(this.store.latest[site]?.[canonicalUrl]);
   }
 
   /**

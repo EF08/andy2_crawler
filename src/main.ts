@@ -4,6 +4,7 @@ import { loadConfig } from "./config/loader";
 import { launchSession } from "./browser/session";
 import { JsonStore } from "./store/jsonStore";
 import { runOnePass } from "./crawl/engine";
+import { runFeedsPass } from "./feeds/engine";
 import { deduplicateStore } from "./store/deduplicate";
 import { pushSnapshots } from "./sync/backendSync";
 
@@ -40,7 +41,9 @@ async function start(): Promise<void> {
   );
   console.log(`[main] Output: ${config.outputPath}`);
 
-  const session = await launchSession(config);
+  // Feeds-only configs have no browser targets — never launch Chrome for them.
+  const session = config.targets.length > 0 ? await launchSession(config) : null;
+  if (!session) console.log("[main] No browser targets — feeds-only run.");
   let runCounter = 0;
 
   try {
@@ -48,7 +51,18 @@ async function start(): Promise<void> {
       runCounter += 1;
       const runId = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${runCounter}`;
       console.log(`[main] Starting crawl run ${runId}`);
-      await runOnePass(session.context, config, store, runId, args.dryRun);
+
+      // Phase 1: HTTP feeds (market news + EDGAR) — cheap, no browser, never fatal
+      if (config.feeds.enabled) {
+        try {
+          await runFeedsPass(config, store, runId, args.dryRun);
+        } catch (error) {
+          console.warn(`[feeds] Pass failed: ${(error as Error).message}`);
+        }
+      }
+
+      // Phase 2: browser crawl (X/Reddit/Bloomberg)
+      if (session) await runOnePass(session.context, config, store, runId, args.dryRun);
       console.log(`[main] Completed crawl run ${runId}`);
 
       // Push this run's snapshots to the remote backend (never fatal to the crawl loop)
@@ -76,8 +90,10 @@ async function start(): Promise<void> {
       await sleep(config.schedule.intervalMs);
     } while (true);
   } finally {
-    await session.close();
-    console.log("[main] Browser session closed.");
+    if (session) {
+      await session.close();
+      console.log("[main] Browser session closed.");
+    }
   }
 }
 

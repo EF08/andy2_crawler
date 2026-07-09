@@ -54,6 +54,45 @@ export const DedupSchema = z.object({
   windowDays: z.number().int().min(1).max(365).default(5),
 });
 
+/* ── HTTP feeds (market news + EDGAR filings) — no browser, plain fetch ── */
+
+export const DEFAULT_GNW_FEEDS = [
+  // Official GlobeNewswire category feeds — full catalog: https://www.globenewswire.com/rss/list
+  "https://www.globenewswire.com/RssFeed/subjectcode/13-Earnings%20Releases%20and%20Operating%20Results/feedTitle/GlobeNewswire%20-%20Earnings%20Releases%20and%20Operating%20Results",
+  "https://www.globenewswire.com/RssFeed/subjectcode/27-Mergers%20and%20Acquisitions/feedTitle/GlobeNewswire%20-%20Mergers%20and%20Acquisitions",
+  "https://www.globenewswire.com/RssFeed/subjectcode/5-Bankruptcy/feedTitle/GlobeNewswire%20-%20Bankruptcy",
+];
+
+export const DEFAULT_GOOGLE_NEWS_FEEDS = [
+  "https://news.google.com/rss/search?q=site:bloomberg.com+OR+site:reuters.com+OR+site:wsj.com&hl=en-US&gl=US&ceid=US:en",
+];
+
+const FeedSourceBaseSchema = z.object({
+  enabled: z.boolean().default(true),
+  /** Char budget per pull: NEW item text accumulates until this limit (the item that
+   *  crosses it is included, matching the crawl engine's char-budget semantics). */
+  maxChars: z.number().int().min(500).max(500_000).default(20_000),
+});
+
+export const FeedsConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Skip feed items older than this many days (no parseable timestamp = kept). */
+  maxAgeDays: z.number().min(0.05).max(365).default(7),
+  timeoutMs: z.number().int().min(2000).max(60_000).default(15_000),
+  /** Sent on every feed request. The SEC requires a UA that identifies you + contact. */
+  userAgent: z.string().default("andy2_crawler/1.0 (contact: andyfazliu@gmail.com)"),
+  globenewswire: FeedSourceBaseSchema.extend({
+    feeds: z.array(z.string().url()).default(DEFAULT_GNW_FEEDS),
+  }).prefault({}),
+  googleNews: FeedSourceBaseSchema.extend({
+    feeds: z.array(z.string().url()).default(DEFAULT_GOOGLE_NEWS_FEEDS),
+  }).prefault({}),
+  edgar: FeedSourceBaseSchema.extend({
+    /** EDGAR "current events" form types to pull (each is one Atom request). */
+    formTypes: z.array(z.string().min(1)).default(["8-K"]),
+  }).prefault({}),
+});
+
 export const BackendSchema = z.object({
   /** Push snapshots to the remote backend (bfleaderboard_backend) after each run. */
   enabled: z.boolean().default(false),
@@ -69,7 +108,8 @@ export const BackendSchema = z.object({
 export const CrawlerConfigSchema = z.object({
   profileDir: z.string().min(1),
   outputPath: z.string().min(1),
-  targets: z.array(z.string().url()).min(1),
+  /** Browser crawl targets. May be empty for feeds-only configs (no Chrome launched). */
+  targets: z.array(z.string().url()),
   siteRules: z.object({
     xCom: SiteRuleSchema,
     redditCom: SiteRuleSchema,
@@ -80,6 +120,7 @@ export const CrawlerConfigSchema = z.object({
   chrome: ChromeProfileSchema.default({ useSystemProfile: false, mode: "persistent" }),
   clipboard: ClipboardSchema.default({ maxChars: 50000 }),
   dedup: DedupSchema.default({ windowDays: 5 }),
+  feeds: FeedsConfigSchema.prefault({}),
   backend: BackendSchema.default({
     enabled: false,
     baseUrl: "https://bfleaderboard-backend.onrender.com",
@@ -93,6 +134,7 @@ export type Behavior = z.infer<typeof BehaviorSchema>;
 export type Schedule = z.infer<typeof ScheduleSchema>;
 export type ClipboardConfig = z.infer<typeof ClipboardSchema>;
 export type DedupConfig = z.infer<typeof DedupSchema>;
+export type FeedsConfig = z.infer<typeof FeedsConfigSchema>;
 export type BackendConfig = z.infer<typeof BackendSchema>;
 export type CrawlerConfig = z.infer<typeof CrawlerConfigSchema>;
 

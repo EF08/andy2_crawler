@@ -25,14 +25,18 @@ process.chdir(ROOT);
 
 const POLL_MS = 30_000;
 const CRAWL_TIMEOUT_MS = 35 * 60_000;
+const FEEDS_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_FEEDS_EVERY_MINUTES = 15; // used until the backend sends its own value
 const LOG_PATH = path.join(ROOT, "data", "agent.log");
 const LOCK_PATH = path.join(ROOT, "data", "agent.lock");
 const JOB_CONFIG_PATH = path.join(ROOT, "data", "agent-job-config.json");
+const FEEDS_CONFIG_PATH = path.join(ROOT, "data", "agent-feeds-config.json");
 
 const CONFIG_FILES: Record<string, string> = {
   main: "crawler.config.json",
   "5k": "crawler.config.5k.json",
   short: "crawler.config.short.json",
+  feeds: "crawler.config.feeds.json", // news + EDGAR only, no browser
 };
 const ALLOWED_HOSTS = ["x.com", "reddit.com", "bloomberg.com"];
 
@@ -41,7 +45,13 @@ type Job = {
   params?: { configFile?: string; targets?: string[]; maxCharsPerSite?: number };
   source?: string;
 };
-type Schedule = { enabled: boolean; everyHours: number; lastRunAt: string | null };
+type Schedule = {
+  enabled: boolean;
+  everyHours: number;
+  lastRunAt: string | null;
+  /** News/EDGAR feed pull interval (0 = disabled). Backend-controlled; default 15. */
+  feedsEveryMinutes?: number;
+};
 
 function log(msg: string): void {
   const line = `[${new Date().toISOString()}] ${msg}`;
@@ -91,7 +101,7 @@ async function api(pathname: string, body: unknown): Promise<any> {
 }
 
 /* ── job config: whitelisted base + sanitized overrides ── */
-function buildJobConfig(params: Job["params"]): string {
+function buildJobConfig(params: Job["params"], outPath: string = JOB_CONFIG_PATH): string {
   const fileKey = params?.configFile && CONFIG_FILES[params.configFile] ? params.configFile : "main";
   const base = JSON.parse(fs.readFileSync(path.join(ROOT, CONFIG_FILES[fileKey]), "utf-8"));
 
@@ -117,14 +127,19 @@ function buildJobConfig(params: Job["params"]): string {
   base.profileDir = path.join(ROOT, "profiles", "automation-profile");
   base.outputPath = path.join(ROOT, "data", "crawl-store.json");
 
-  fs.mkdirSync(path.dirname(JOB_CONFIG_PATH), { recursive: true });
-  fs.writeFileSync(JOB_CONFIG_PATH, JSON.stringify(base, null, 2));
-  return JOB_CONFIG_PATH;
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, JSON.stringify(base, null, 2));
+  return outPath;
 }
 
 /* ── crawl runner ── */
 let currentJob: Job | null = null;
 let currentChild: ChildProcess | null = null;
+
+/* ── feeds pull state (news + EDGAR every N minutes, agent-local, no job queue) ── */
+let feedsChild: ChildProcess | null = null;
+let lastFeedsAt = 0; // 0 → first pull happens right after agent start
+let lastFeedsResult: string | null = null;
 
 function runJob(job: Job): void {
   currentJob = job;
@@ -179,6 +194,57 @@ async function completeJob(job: Job, ok: boolean, result: unknown, error: string
   }
 }
 
+/* ── feeds pull runner ──
+ * Runs main.ts with the feeds-only config (no Chrome). Single-instance by design:
+ * only started when the agent is fully idle (no crawl job, no feeds child), and while
+ * it runs the agent claims no jobs — so the store file is never written concurrently.
+ * lastFeedsAt is stamped at START so a crashing pull can't retry faster than the interval.
+ */
+function runFeedsPull(): void {
+  let configPath: string;
+  try {
+    configPath = buildJobConfig({ configFile: "feeds" }, FEEDS_CONFIG_PATH);
+  } catch (e) {
+    lastFeedsAt = Date.now();
+    lastFeedsResult = `config build failed: ${(e as Error).message}`;
+    log(`Feeds pull: ${lastFeedsResult}`);
+    return;
+  }
+
+  lastFeedsAt = Date.now();
+  log("Feeds pull: starting (news + EDGAR, no browser)");
+  const tail: string[] = [];
+  const child = spawn("cmd.exe", ["/c", "npx", "tsx", "src/main.ts", "--config", configPath], {
+    cwd: ROOT,
+    windowsHide: true,
+  });
+  feedsChild = child;
+
+  const capture = (chunk: Buffer) => {
+    const text = chunk.toString();
+    tail.push(text);
+    while (tail.length > 100) tail.shift();
+    try { fs.appendFileSync(LOG_PATH, text); } catch { /* ignore */ }
+  };
+  child.stdout?.on("data", capture);
+  child.stderr?.on("data", capture);
+
+  const timeout = setTimeout(() => {
+    log(`Feeds pull: TIMEOUT after ${FEEDS_TIMEOUT_MS / 60000}min — killing`);
+    if (child.pid) spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
+  }, FEEDS_TIMEOUT_MS);
+
+  child.on("close", (code) => {
+    clearTimeout(timeout);
+    feedsChild = null;
+    const feedLines = (tail.join("").match(/\[feeds\] [^\n]+/g) || []).slice(-4);
+    lastFeedsResult = code === 0
+      ? (feedLines.join(" | ") || "ok (no [feeds] output)")
+      : `exit code ${code}`;
+    log(`Feeds pull: done (code ${code}) ${lastFeedsResult}`);
+  });
+}
+
 /* ── schedule ── */
 function scheduleDue(s: Schedule): boolean {
   if (!s.enabled || !s.everyHours) return false;
@@ -186,20 +252,33 @@ function scheduleDue(s: Schedule): boolean {
   return Date.now() - last >= s.everyHours * 3600_000;
 }
 
+function feedsDue(s: Schedule | undefined): boolean {
+  const everyMinutes = typeof s?.feedsEveryMinutes === "number" ? s.feedsEveryMinutes : DEFAULT_FEEDS_EVERY_MINUTES;
+  if (everyMinutes <= 0) return false; // 0 = disabled from the backend
+  return Date.now() - lastFeedsAt >= everyMinutes * 60_000;
+}
+
 /* ── main loop ── */
 async function tick(): Promise<void> {
-  const busy = currentJob !== null;
+  const busy = currentJob !== null || feedsChild !== null;
   const resp = await api("/api/crawler/agent/poll", {
-    status: busy ? "crawling" : "idle",
+    status: currentJob ? "crawling" : feedsChild ? "feeds" : "idle",
     hostname: HOSTNAME,
     currentJobId: currentJob?._id ?? null,
     wantJob: !busy,
+    feeds: {
+      lastPullAt: lastFeedsAt ? new Date(lastFeedsAt).toISOString() : null,
+      pulling: feedsChild !== null,
+      lastResult: lastFeedsResult,
+    },
   });
   if (!busy && resp.job) {
     runJob(resp.job as Job);
   } else if (!busy && resp.schedule && scheduleDue(resp.schedule as Schedule)) {
     log(`Schedule due (every ${resp.schedule.everyHours}h) — enqueueing a 'main' crawl`);
     await api("/api/crawler/agent/jobs", { source: "schedule", params: { configFile: "main" } });
+  } else if (!busy && feedsDue(resp.schedule as Schedule)) {
+    runFeedsPull();
   }
 }
 
@@ -210,6 +289,7 @@ async function main(): Promise<void> {
 
   const cleanup = () => {
     try { if (currentChild?.pid) spawn("taskkill", ["/pid", String(currentChild.pid), "/T", "/F"], { windowsHide: true }); } catch { /* ignore */ }
+    try { if (feedsChild?.pid) spawn("taskkill", ["/pid", String(feedsChild.pid), "/T", "/F"], { windowsHide: true }); } catch { /* ignore */ }
     try { fs.unlinkSync(LOCK_PATH); } catch { /* ignore */ }
     process.exit(0);
   };
