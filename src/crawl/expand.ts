@@ -20,9 +20,17 @@ function filterKnown(record: ExtractedRecord, knownTexts: Set<string>): Extracte
   };
 }
 
+export type ExpandResult = {
+  records: ExtractedRecord[];
+  /** True when expansion stopped because a post was older than rule.maxAgeDays. */
+  agedOut: boolean;
+};
+
 /**
  * Visits posts one-by-one and accumulates chars. Known content
  * (already in store) is filtered out and doesn't count toward budget.
+ * Stops at the char budget OR the first post older than rule.maxAgeDays
+ * (listings are sorted newest-first, so everything after is older still).
  */
 export async function expandWithCharBudget(
   page: Page,
@@ -32,9 +40,11 @@ export async function expandWithCharBudget(
   behavior: Behavior,
   maxChars: number,
   knownTexts?: Set<string>,
-): Promise<ExtractedRecord[]> {
+): Promise<ExpandResult> {
   const expanded: ExtractedRecord[] = [];
   let cumulativeChars = 0;
+  let agedOut = false;
+  const cutoffMs = Date.now() - rule.maxAgeDays * 86_400_000;
 
   for (const target of targets) {
     if (cumulativeChars >= maxChars) {
@@ -52,9 +62,23 @@ export async function expandWithCharBudget(
       await humanizeBeforeExtract(page, behavior);
 
       let extracted = await adapter.extractBase(page, rule);
-      
+
       // Add the source URL to the extracted record
       extracted.sourceUrl = target.url;
+
+      // Age horizon: stop at the first post older than maxAgeDays (checked before
+      // known-content filtering so the post's own timestamp is still present)
+      const postTs = extracted.posts[0]?.timestamp;
+      if (postTs) {
+        const t = Date.parse(postTs);
+        if (!isNaN(t) && t < cutoffMs) {
+          console.log(
+            `[expand] Post dated ${postTs.slice(0, 10)} is older than ${rule.maxAgeDays} days — stopping`,
+          );
+          agedOut = true;
+          break;
+        }
+      }
 
       // Filter out content already in the store
       if (knownTexts && knownTexts.size > 0) {
@@ -85,5 +109,5 @@ export async function expandWithCharBudget(
   }
 
   console.log(`[expand] Done: ${expanded.length} posts, ${cumulativeChars} total chars`);
-  return expanded;
+  return { records: expanded, agedOut };
 }

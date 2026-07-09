@@ -14,20 +14,23 @@
       "maxChars": 40000,
       "maxCharsPerComment": 700,
       "contentLevel": "feed",
-      "stallLimit": 3
+      "stallLimit": 3,
+      "maxAgeDays": 35
     },
     "redditCom": {
       "maxChars": 40000,
       "maxCharsPerComment": 900,
       "contentLevel": "post",
       "stallLimit": 3,
-      "maxFeedScrolls": 5
+      "maxFeedScrolls": 5,
+      "maxAgeDays": 35
     },
     "bloombergCom": {
       "maxChars": 20000,
       "maxCharsPerComment": 600,
       "contentLevel": "post",
-      "stallLimit": 3
+      "stallLimit": 3,
+      "maxAgeDays": 35
     }
   },
   "behavior": {

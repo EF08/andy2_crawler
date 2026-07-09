@@ -11,6 +11,9 @@ export const SiteRuleSchema = z.object({
    *  Keeps the crawler from endlessly scrolling a titles page — just grab visible posts,
    *  visit them, and do a couple extra scrolls if more are needed. */
   maxFeedScrolls: z.number().int().min(0).max(100).default(10),
+  /** Stop scraping once content is older than this many days (posts with no parseable
+   *  timestamp are kept). Runs end at char budget OR this age horizon, whichever first. */
+  maxAgeDays: z.number().min(1).max(3650).default(35),
 });
 
 export const BehaviorSchema = z.object({

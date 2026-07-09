@@ -12,7 +12,7 @@ import { SiteRule } from "../config/types";
 import type { Page } from "playwright";
 
 const LATEST_URL = "https://www.bloomberg.com/latest?utm_source=homepage&utm_medium=web&utm_campaign=latest";
-const baseRule: SiteRule = { maxChars: 5000, maxCharsPerComment: 600, contentLevel: "post", stallLimit: 3, maxFeedScrolls: 10 };
+const baseRule: SiteRule = { maxChars: 5000, maxCharsPerComment: 600, contentLevel: "post", stallLimit: 3, maxFeedScrolls: 10, maxAgeDays: 3650 };
 
 function isRobotPage(title: string): boolean {
   return title.toLowerCase().includes("robot");

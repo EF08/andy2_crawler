@@ -58,13 +58,23 @@ async function crawlFeedLevel(
   const allPosts: ContentItem[] = [];
   let cumulativeChars = 0;
   let totalSkipped = 0;
+  let totalTooOld = 0;
   let feedTitle = "";
+
+  // Age horizon: posts older than maxAgeDays are skipped; a whole batch of them stops the run
+  const cutoffMs = Date.now() - siteRule.maxAgeDays * 86_400_000;
+  const tooOld = (ts?: string): boolean => {
+    if (!ts) return false; // no parseable timestamp → keep
+    const t = Date.parse(ts);
+    return !isNaN(t) && t < cutoffMs;
+  };
 
   // Extract initial visible content
   const initial = await adapter.extractBase(page, siteRule);
   feedTitle = initial.title ?? "";
   for (const post of initial.posts) {
     if (!post.text) continue;
+    if (tooOld(post.timestamp)) { totalTooOld++; continue; }
     if (seenTexts.has(post.text)) { totalSkipped++; continue; }
     seenTexts.add(post.text);
     allPosts.push(post);
@@ -101,12 +111,16 @@ async function crawlFeedLevel(
     }
     prevHeight = height;
 
-    // Extract visible posts — skip known content
+    // Extract visible posts — skip known and too-old content
     const batch = await adapter.extractBase(page, siteRule);
     let newInBatch = 0;
     let skippedInBatch = 0;
+    let oldInBatch = 0;
+    let datedInBatch = 0;
     for (const post of batch.posts) {
       if (!post.text) continue;
+      if (post.timestamp && !isNaN(Date.parse(post.timestamp))) datedInBatch++;
+      if (tooOld(post.timestamp)) { oldInBatch++; totalTooOld++; continue; }
       if (seenTexts.has(post.text)) { skippedInBatch++; totalSkipped++; continue; }
       seenTexts.add(post.text);
       allPosts.push(post);
@@ -119,11 +133,21 @@ async function crawlFeedLevel(
       `${cumulativeChars}/${siteRule.maxChars} chars · ${allPosts.length} new · ${scrolls} scrolls`;
     if (newInBatch > 0) msg += ` (+${newInBatch} new)`;
     if (skippedInBatch > 0) msg += ` (${skippedInBatch} known)`;
+    if (oldInBatch > 0) msg += ` (${oldInBatch} too old)`;
     console.log(msg);
+
+    // Every dated post in the batch is past the age horizon → deeper scrolling only gets older
+    if (datedInBatch > 0 && oldInBatch === datedInBatch) {
+      console.log(`[crawl] Feed content is older than ${siteRule.maxAgeDays} days — stopping`);
+      break;
+    }
   }
 
   if (totalSkipped > 0) {
     console.log(`[crawl] Total skipped: ${totalSkipped} known posts from store`);
+  }
+  if (totalTooOld > 0) {
+    console.log(`[crawl] Total skipped: ${totalTooOld} posts older than ${siteRule.maxAgeDays} days`);
   }
 
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -289,18 +313,24 @@ async function crawlPostLevel(
     }
 
     const remainingBudget = siteRule.maxChars - cumulativeChars;
-    const expanded = await expandWithCharBudget(
+    const expandResult = await expandWithCharBudget(
       page, adapter, siteRule, newTargets, config.behavior, remainingBudget,
       known.texts,
     );
 
-    allExpanded.push(...expanded);
+    allExpanded.push(...expandResult.records);
     cumulativeChars = expandedChars(allExpanded);
 
     console.log(
       `[engine] ${progressBar(cumulativeChars, siteRule.maxChars)} ` +
       `${cumulativeChars}/${siteRule.maxChars} chars · ${allExpanded.length} posts visited`,
     );
+
+    // Listing is sorted newest-first — a too-old post means everything further is older
+    if (expandResult.agedOut) {
+      console.log(`[engine] Reached posts older than ${siteRule.maxAgeDays} days — stopping this target`);
+      break;
+    }
 
     if (cumulativeChars < siteRule.maxChars) {
       console.log(`[engine] Returning to feed for more posts`);

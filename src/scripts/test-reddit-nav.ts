@@ -20,6 +20,7 @@ const RULE: SiteRule = {
   contentLevel: "post",
   stallLimit: 3,
   maxFeedScrolls: 5,
+  maxAgeDays: 3650,
 };
 
 const SHOTS_DIR = path.resolve("data/screenshots");

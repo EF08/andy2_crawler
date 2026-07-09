@@ -13,6 +13,7 @@ const baseRule: SiteRule = {
   contentLevel: "feed",
   stallLimit: 3,
   maxFeedScrolls: 10,
+  maxAgeDays: 3650,
 };
 
 function loadFixture(name: string): string {
