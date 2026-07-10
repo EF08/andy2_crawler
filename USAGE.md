@@ -90,7 +90,7 @@ idle (remote-controlled: `crawler_set_schedule({feedsEveryMinutes})`, 0 disables
 Every run automatically pushes its snapshots to `bfleaderboard_backend` on Render
 (when `backend.enabled` is `true` in the config). From there the data is queryable
 from claude.ai on any device via the "Crawler" MCP connector
-(`https://bfleaderboard-backend.onrender.com/api/crawler/mcp` — same access password
+(`https://a1a2-command-center.onrender.com/api/crawler/mcp` — same access password
 as the Maor connector).
 
 - The ingest key lives in `backend.local.json` (gitignored — never commit it).

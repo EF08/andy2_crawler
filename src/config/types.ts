@@ -96,7 +96,7 @@ export const FeedsConfigSchema = z.object({
 export const BackendSchema = z.object({
   /** Push snapshots to the remote backend (bfleaderboard_backend) after each run. */
   enabled: z.boolean().default(false),
-  baseUrl: z.string().url().default("https://bfleaderboard-backend.onrender.com"),
+  baseUrl: z.string().url().default("https://a1a2-command-center.onrender.com"),
   ingestPath: z.string().default("/api/crawler/ingest"),
   /** Shared secret sent as x-crawler-key. Prefer env CRAWLER_INGEST_KEY or the gitignored
    *  backend.local.json over committing it here (see src/sync/backendSync.ts). */
@@ -123,7 +123,7 @@ export const CrawlerConfigSchema = z.object({
   feeds: FeedsConfigSchema.prefault({}),
   backend: BackendSchema.default({
     enabled: false,
-    baseUrl: "https://bfleaderboard-backend.onrender.com",
+    baseUrl: "https://a1a2-command-center.onrender.com",
     ingestPath: "/api/crawler/ingest",
     batchSize: 40,
   }),

@@ -60,6 +60,6 @@
   },
   "backend": {
     "enabled": true,
-    "baseUrl": "https://bfleaderboard-backend.onrender.com"
+    "baseUrl": "https://a1a2-command-center.onrender.com"
   }
 }
