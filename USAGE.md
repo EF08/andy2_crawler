@@ -12,11 +12,9 @@ and pulls market/business news + SEC EDGAR filings from HTTP feeds (no browser).
 npm install
 ```
 
-3. Install Playwright browser support:
-
-```bash
-npx playwright install
-```
+3. Make sure **Google Chrome is installed** — the crawler drives your real Chrome
+   (`channel: "chrome"`); Playwright's bundled browsers are not used, so there is
+   no `npx playwright install` step.
 
 ## 2) Configure targets
 

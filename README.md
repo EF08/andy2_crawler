@@ -36,15 +36,17 @@ Everything is normalized into one schema, deduplicated over a rolling window, an
 
 ## Usage
 
-See [USAGE.md](USAGE.md) for setup and configuration. Quick version:
+See [USAGE.md](USAGE.md) for full setup and configuration. Quick version:
 
 ```sh
-npm install
-npx playwright install
-npm start            # crawl targets from crawler.config.json
+npm install          # requires Google Chrome — the crawler drives real Chrome, not Playwright's bundled browsers
+# edit crawler.config.json (targets, site budgets, backend sync)
+npm run login        # opens the automation Chrome profile — sign in to X/Reddit once
+npm run crawl        # one-shot crawl of the configured targets
+npm run agent        # or: always-on daemon that takes remote jobs via the backend
 ```
 
-Config presets (`crawler.config.*.json`) cover full runs, short smoke runs, and feeds-only runs.
+Config presets (`crawler.config.*.json`) cover full runs, short smoke runs, and feeds-only runs; `npm run feeds` pulls the news/EDGAR feeds with no browser at all.
 
 ## Stack
 
