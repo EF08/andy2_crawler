@@ -4,7 +4,7 @@ import { BackendConfig } from "../config/types";
 import { CrawlSnapshot } from "../store/schema";
 
 /**
- * Pushes crawl snapshots to bfleaderboard_backend (POST /api/crawler/ingest).
+ * Pushes crawl snapshots to a1a2-command-center (POST /api/crawler/ingest).
  * The backend upserts by snapshot id, so resending anything (retries, backfills)
  * is always safe — no duplicates.
  */

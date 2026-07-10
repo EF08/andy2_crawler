@@ -14,7 +14,7 @@ flowchart TD
         B --> D["Extract + normalize<br/>+ dedup window"]
         D --> E["JSON store"]
     end
-    E -->|keyed sync| F["Express backend on Render"]
+    E -->|keyed sync| F["a1a2-command-center<br/>(Express backend on Render)"]
     F --> G["MCP endpoint<br/>/api/crawler/mcp"]
     G --> H["Claude<br/>claude.ai connector + Claude Code"]
 ```

@@ -94,7 +94,7 @@ export const FeedsConfigSchema = z.object({
 });
 
 export const BackendSchema = z.object({
-  /** Push snapshots to the remote backend (bfleaderboard_backend) after each run. */
+  /** Push snapshots to the remote backend (a1a2-command-center) after each run. */
   enabled: z.boolean().default(false),
   baseUrl: z.string().url().default("https://a1a2-command-center.onrender.com"),
   ingestPath: z.string().default("/api/crawler/ingest"),
