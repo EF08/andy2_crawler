@@ -7,16 +7,16 @@ Built to answer one question every morning: *what's in my feeds that isn't price
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph local [Local machine]
-        A[Your real Chrome<br/>attached via CDP] --> B[Site adapters<br/>x.com / reddit / bloomberg]
-        C[HTTP feed engines<br/>GlobeNewswire / Google News / EDGAR 8-K] --> D
-        B --> D[Extract + normalize<br/>+ dedup window]
-        D --> E[JSON store]
+        A["Your real Chrome<br/>attached via CDP"] --> B["Site adapters<br/>x.com · reddit · bloomberg"]
+        C["HTTP feed engines<br/>GlobeNewswire · Google News · EDGAR 8-K"] --> D
+        B --> D["Extract + normalize<br/>+ dedup window"]
+        D --> E["JSON store"]
     end
-    E -->|keyed sync| F[Express backend on Render]
-    F --> G[MCP endpoint<br/>/api/crawler/mcp]
-    G --> H[Claude<br/>claude.ai connector + Claude Code]
+    E -->|keyed sync| F["Express backend on Render"]
+    F --> G["MCP endpoint<br/>/api/crawler/mcp"]
+    G --> H["Claude<br/>claude.ai connector + Claude Code"]
 ```
 
 Two acquisition paths feed one store:
