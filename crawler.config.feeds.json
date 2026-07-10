@@ -53,7 +53,7 @@
     "maxAgeDays": 7,
     "globenewswire": { "enabled": true, "maxChars": 20000 },
     "googleNews": { "enabled": true, "maxChars": 20000 },
-    "edgar": { "enabled": true, "maxChars": 20000, "formTypes": ["8-K"] }
+    "edgar": { "enabled": false, "maxChars": 20000, "formTypes": ["8-K"] }
   },
   "backend": {
     "enabled": true,
