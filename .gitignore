@@ -9,6 +9,7 @@ profiles/
 
 # Data / crawl output
 data/
+widget/widget-state.json
 
 # Environment & secrets
 .env

@@ -31,6 +31,7 @@ const LOG_PATH = path.join(ROOT, "data", "agent.log");
 const LOCK_PATH = path.join(ROOT, "data", "agent.lock");
 const JOB_CONFIG_PATH = path.join(ROOT, "data", "agent-job-config.json");
 const FEEDS_CONFIG_PATH = path.join(ROOT, "data", "agent-feeds-config.json");
+const LOCAL_STATUS_PATH = path.join(ROOT, "data", "agent-status.json");
 
 const CONFIG_FILES: Record<string, string> = {
   main: "crawler.config.json",
@@ -141,6 +142,24 @@ let feedsChild: ChildProcess | null = null;
 let lastFeedsAt = 0; // 0 → first pull happens right after agent start
 let lastFeedsResult: string | null = null;
 
+/* ── local status file: the desktop widget reads this every second, so state changes
+ *    (idle→crawling, feeds pull start/end) show up instantly instead of after the
+ *    widget's next backend poll. ~300 bytes, written on every change + each tick. ── */
+function writeLocalStatus(): void {
+  try {
+    fs.writeFileSync(LOCAL_STATUS_PATH, JSON.stringify({
+      status: currentJob ? "crawling" : feedsChild ? "feeds" : "idle",
+      currentJobId: currentJob?._id ?? null,
+      feeds: {
+        lastPullAt: lastFeedsAt ? new Date(lastFeedsAt).toISOString() : null,
+        pulling: feedsChild !== null,
+        lastResult: lastFeedsResult,
+      },
+      updatedAt: new Date().toISOString(),
+    }));
+  } catch { /* the status file must never kill the agent */ }
+}
+
 function runJob(job: Job): void {
   currentJob = job;
   let configPath: string;
@@ -159,6 +178,7 @@ function runJob(job: Job): void {
     windowsHide: true,
   });
   currentChild = child;
+  writeLocalStatus();
 
   const capture = (chunk: Buffer) => {
     const text = chunk.toString();
@@ -186,6 +206,7 @@ function runJob(job: Job): void {
 async function completeJob(job: Job, ok: boolean, result: unknown, error: string | null): Promise<void> {
   currentJob = null;
   currentChild = null;
+  writeLocalStatus();
   try {
     await api(`/api/crawler/agent/jobs/${job._id}/complete`, { ok, result, error });
     log(`Job ${job._id}: reported ${ok ? "done" : "failed"}`);
@@ -219,6 +240,7 @@ function runFeedsPull(): void {
     windowsHide: true,
   });
   feedsChild = child;
+  writeLocalStatus();
 
   const capture = (chunk: Buffer) => {
     const text = chunk.toString();
@@ -242,6 +264,7 @@ function runFeedsPull(): void {
       ? (feedLines.join(" | ") || "ok (no [feeds] output)")
       : `exit code ${code}`;
     log(`Feeds pull: done (code ${code}) ${lastFeedsResult}`);
+    writeLocalStatus();
   });
 }
 
@@ -250,6 +273,29 @@ function scheduleDue(s: Schedule): boolean {
   if (!s.enabled || !s.everyHours) return false;
   const last = s.lastRunAt ? Date.parse(s.lastRunAt) : 0;
   return Date.now() - last >= s.everyHours * 3600_000;
+}
+
+/* ── exact-time scheduling: instead of noticing "due" up to POLL_MS late, arm a timer for
+ *    the precise due moment that wakes the poll loop immediately. After enqueueing a due
+ *    job, the next tick runs fast (500ms) so the job is claimed right away — the crawl
+ *    starts within ~1-2s of the countdown hitting zero instead of up to a minute later. ── */
+let fastNext = false;
+let wakeTick: (() => void) | null = null;
+let dueTimer: NodeJS.Timeout | null = null;
+
+function sleepUntilNextTick(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => { wakeTick = null; resolve(); }, ms);
+    wakeTick = () => { clearTimeout(t); wakeTick = null; resolve(); };
+  });
+}
+
+function armDueTimer(s: Schedule | undefined): void {
+  if (dueTimer) { clearTimeout(dueTimer); dueTimer = null; }
+  if (!s || !s.enabled || !s.everyHours || !s.lastRunAt) return;
+  const delay = Date.parse(s.lastRunAt) + s.everyHours * 3600_000 - Date.now();
+  if (delay <= 0 || delay > 12 * 3600_000) return; // already due (polling handles it) / too far out
+  dueTimer = setTimeout(() => { if (wakeTick) wakeTick(); }, delay + 250);
 }
 
 function feedsDue(s: Schedule | undefined): boolean {
@@ -277,9 +323,12 @@ async function tick(): Promise<void> {
   } else if (!busy && resp.schedule && scheduleDue(resp.schedule as Schedule)) {
     log(`Schedule due (every ${resp.schedule.everyHours}h) — enqueueing a 'main' crawl`);
     await api("/api/crawler/agent/jobs", { source: "schedule", params: { configFile: "main" } });
+    fastNext = true; // claim it on a fast follow-up tick instead of waiting a full poll
   } else if (!busy && feedsDue(resp.schedule as Schedule)) {
     runFeedsPull();
   }
+  armDueTimer(resp.schedule as Schedule);
+  writeLocalStatus();
 }
 
 async function main(): Promise<void> {
@@ -288,8 +337,10 @@ async function main(): Promise<void> {
   log(`Agent started (pid=${process.pid}, host=${HOSTNAME}, backend=${BASE_URL}, poll=${POLL_MS / 1000}s)`);
 
   const cleanup = () => {
+    try { if (dueTimer) clearTimeout(dueTimer); } catch { /* ignore */ }
     try { if (currentChild?.pid) spawn("taskkill", ["/pid", String(currentChild.pid), "/T", "/F"], { windowsHide: true }); } catch { /* ignore */ }
     try { if (feedsChild?.pid) spawn("taskkill", ["/pid", String(feedsChild.pid), "/T", "/F"], { windowsHide: true }); } catch { /* ignore */ }
+    try { fs.unlinkSync(LOCAL_STATUS_PATH); } catch { /* ignore */ }
     try { fs.unlinkSync(LOCK_PATH); } catch { /* ignore */ }
     process.exit(0);
   };
@@ -298,6 +349,7 @@ async function main(): Promise<void> {
 
   let failStreak = 0;
   while (true) {
+    fastNext = false;
     try {
       await tick();
       failStreak = 0;
@@ -306,7 +358,7 @@ async function main(): Promise<void> {
       // Render free tier cold-starts + reboots happen; just keep polling
       if (failStreak <= 3 || failStreak % 20 === 0) log(`Poll failed (${failStreak}x): ${(e as Error).message}`);
     }
-    await new Promise((r) => setTimeout(r, POLL_MS));
+    await sleepUntilNextTick(fastNext ? 500 : POLL_MS);
   }
 }
 

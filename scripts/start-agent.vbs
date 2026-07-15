@@ -4,3 +4,5 @@ Set sh = CreateObject("WScript.Shell")
 root = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\scripts\") - 1)
 sh.CurrentDirectory = root
 sh.Run "cmd /c npx tsx src\agent\agent.ts >> data\agent-launcher.log 2>&1", 0, False
+' Status widget rides along with the agent (single-instance mutex prevents doubles).
+sh.Run "wscript.exe """ & root & "\widget\start-widget.vbs""", 0, False
