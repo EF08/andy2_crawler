@@ -126,7 +126,14 @@ export function deduplicateStore(storePath: string): void {
   }
 
   const raw = fs.readFileSync(storePath, "utf-8");
-  const store: CrawlStore = JSON.parse(raw);
+  let store: CrawlStore;
+  try {
+    store = JSON.parse(raw);
+  } catch (error) {
+    // Dedup is a cleanup pass — never let a corrupt store kill the run; JsonStore.load handles repair.
+    console.warn(`[dedup] Store file is corrupt (${(error as Error).message}), skipping dedup`);
+    return;
+  }
   const originalSize = Buffer.byteLength(raw, "utf-8");
 
   console.log(`[dedup] Loaded store (${(originalSize / 1024).toFixed(1)} KB)`);
@@ -169,7 +176,10 @@ export function deduplicateStore(storePath: string): void {
   // 5. Write back
   const output = JSON.stringify(store, null, 2);
   const newSize = Buffer.byteLength(output, "utf-8");
-  fs.writeFileSync(storePath, output, "utf-8");
+  // Write-then-rename so a crash mid-write can't truncate the live store.
+  const tmpPath = `${storePath}.tmp`;
+  fs.writeFileSync(tmpPath, output, "utf-8");
+  fs.renameSync(tmpPath, storePath);
 
   const saved = originalSize - newSize;
   const pct = originalSize > 0 ? ((saved / originalSize) * 100).toFixed(1) : "0.0";

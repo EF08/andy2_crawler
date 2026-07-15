@@ -17,7 +17,16 @@ export class JsonStore {
       return createEmptyStore();
     }
     const raw = fs.readFileSync(this.outputPath, "utf-8");
-    const parsed = JSON.parse(raw) as CrawlStore;
+    let parsed: CrawlStore;
+    try {
+      parsed = JSON.parse(raw) as CrawlStore;
+    } catch (error) {
+      // A crash mid-write can leave an empty/truncated file; keep it for forensics and start fresh.
+      const backupPath = `${this.outputPath}.corrupt-${Date.now()}`;
+      fs.copyFileSync(this.outputPath, backupPath);
+      console.warn(`[store] Corrupt store file (${(error as Error).message}) — backed up to ${backupPath}, starting fresh`);
+      return createEmptyStore();
+    }
     // Incompatible schema version — start fresh
     if (!parsed.version || parsed.version < STORE_VERSION) {
       console.log(`[store] Old schema v${parsed.version ?? 0} detected, starting fresh (v${STORE_VERSION})`);
@@ -29,7 +38,10 @@ export class JsonStore {
   private persist(): void {
     const parentDir = path.dirname(this.outputPath);
     fs.mkdirSync(parentDir, { recursive: true });
-    fs.writeFileSync(this.outputPath, JSON.stringify(this.store, null, 2), "utf-8");
+    // Write-then-rename so a crash mid-write can't truncate the live store.
+    const tmpPath = `${this.outputPath}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(this.store, null, 2), "utf-8");
+    fs.renameSync(tmpPath, this.outputPath);
   }
 
   private applyUpsert(snapshot: CrawlSnapshot): void {
