@@ -1,108 +1,116 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
 /**
- * Finds chrome.exe processes whose command line contains the given
- * user-data-dir and kills them. Only targets processes using *our*
- * profile — leaves the user's regular Chrome alone.
+ * Frees the automation profile before launching, by closing only the Chrome
+ * processes that are actually using it.
+ *
+ * The hard rule here: never kill Chrome we didn't start. An earlier version fell back to
+ * `Get-Process chrome | Stop-Process -Force` when its targeted kill failed — which took
+ * out Andy's personal browsing (and the marketer agent's browser) along with it, leaving
+ * those profiles flagged as crashed, so every launch opened with "Restore pages?". Worse,
+ * that targeted kill failed *every* time: its PowerShell was double-quoted inside a
+ * double-quoted -Command string, so the fallback was the only path that ever ran.
+ *
+ * If nothing owns the profile, the lockfile is simply a leftover from an ungraceful exit,
+ * and removing that file is the correct fix — not killing browsers.
  */
 export async function closeProfileChrome(userDataDir: string): Promise<void> {
   const resolved = path.resolve(userDataDir);
-
-  // Quick check: if Chrome's lockfile doesn't exist, no instance is running
   const lockfile = path.join(resolved, "lockfile");
+
   if (!fs.existsSync(lockfile)) {
     console.log("[session] No Chrome lockfile found — profile is free.");
     return;
   }
+  console.log("[session] Chrome lockfile detected — finding the process that owns it…");
 
-  console.log("[session] Chrome lockfile detected — finding owning process…");
+  const killed = process.platform === "win32"
+    ? killProfileChromeWin(resolved)
+    : killProfileChromeUnix(resolved);
 
-  if (process.platform === "win32") {
-    await closeProfileChromeWin(resolved);
-  } else {
-    closeProfileChromeUnix(resolved);
+  if (killed > 0) await sleep(2_000);
+  if (!fs.existsSync(lockfile)) {
+    console.log("[session] Profile is free now.");
+    return;
   }
 
-  // Wait for lock release and verify
-  await sleep(2_000);
-
-  if (fs.existsSync(lockfile)) {
-    console.warn("[session] Lockfile still present — retrying with broad kill…");
-    broadKillChromeWin(resolved);
-    await sleep(2_000);
+  if (killed === 0) {
+    // Nothing is using this profile, so the lockfile is stale — that, we can clean up.
+    try {
+      fs.unlinkSync(lockfile);
+      console.log("[session] No Chrome owns this profile — removed the stale lockfile.");
+    } catch (err) {
+      console.warn(`[session] Stale lockfile could not be removed: ${(err as Error).message}`);
+    }
+    return;
   }
+  console.warn(`[session] Lockfile still present after closing ${killed} Chrome process(es) — launching anyway.`);
+}
 
-  console.log("[session] Profile should be free now.");
+/** PowerShell single-quoted literal (doubling any embedded quote). */
+function psLiteral(value: string): string {
+  return "'" + value.replace(/'/g, "''") + "'";
 }
 
 /**
- * Uses PowerShell Get-CimInstance to find chrome.exe processes matching
- * our user-data-dir and kill them. Much more reliable than wmic on
- * modern Windows since wmic CSV output breaks on command lines with commas.
+ * Kill the chrome.exe processes whose command line contains our user-data-dir.
+ * Passed to PowerShell as one argv element — no shell re-quoting — and written with
+ * single quotes only, so nothing can collide with the outer quoting again.
  */
-async function closeProfileChromeWin(resolvedDir: string): Promise<void> {
-  // Escape backslashes for the PS -match regex
-  const escaped = resolvedDir.replace(/\\/g, "\\\\");
-
-  const psScript = [
-    `$procs = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'"`,
-    `  | Where-Object { $_.CommandLine -match '${escaped}' };`,
-    `if ($procs) {`,
-    `  $procs | ForEach-Object {`,
-    `    Write-Output $_.ProcessId;`,
-    `    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue`,
-    `  }`,
-    `}`,
+function killProfileChromeWin(resolvedDir: string): number {
+  // `exit 0` matters: killing a parent Chrome takes its children with it, so the next
+  // Stop-Process hits a pid that's already gone. That error is suppressed but still
+  // leaves PowerShell exiting non-zero, which made execFileSync throw and report a
+  // successful kill as "could not enumerate".
+  const script = [
+    `$ErrorActionPreference = 'SilentlyContinue';`,
+    `$dir = ${psLiteral(resolvedDir.toLowerCase())};`,
+    `$procs = @(Get-CimInstance Win32_Process |`,
+    `  Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -and $_.CommandLine.ToLower().Contains($dir) });`,
+    `foreach ($p in $procs) { Write-Output $p.ProcessId; Stop-Process -Id $p.ProcessId -Force }`,
+    `exit 0`,
   ].join(" ");
 
   try {
-    const raw = execSync(`powershell -NoProfile -Command "${psScript}"`, {
+    const raw = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], {
       encoding: "utf-8",
-      timeout: 15_000,
+      timeout: 20_000,
       stdio: ["pipe", "pipe", "ignore"],
     });
-
     const pids = raw.trim().split(/\s+/).filter(Boolean);
-    if (pids.length > 0) {
-      console.log(`[session] Killed ${pids.length} Chrome process(es): PIDs ${pids.join(", ")}`);
-    } else {
-      console.log("[session] No Chrome processes matched (lockfile may be stale).");
-    }
+    if (pids.length) console.log(`[session] Closed ${pids.length} Chrome process(es) using this profile: ${pids.join(", ")}`);
+    else console.log("[session] No Chrome process is using this profile.");
+    return pids.length;
   } catch (err) {
-    console.warn(`[session] PowerShell kill failed: ${(err as Error).message}`);
+    console.warn(`[session] Could not enumerate Chrome processes: ${(err as Error).message}`);
+    return 0;
   }
 }
 
-/** Fallback: kill ALL chrome.exe that match the profile dir (brute force). */
-function broadKillChromeWin(resolvedDir: string): void {
+/** Linux/macOS: same rule — only processes whose command line names our profile dir. */
+function killProfileChromeUnix(resolvedDir: string): number {
   try {
-    const raw = execSync(
-      `powershell -NoProfile -Command "Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force"`,
-      { encoding: "utf-8", timeout: 10_000, stdio: ["pipe", "pipe", "ignore"] },
-    );
-    console.log("[session] Broad Chrome kill executed.");
-  } catch { /* no chrome running at all */ }
-}
-
-/** Linux/macOS: find and kill chrome processes matching user-data-dir. */
-function closeProfileChromeUnix(resolvedDir: string): void {
-  try {
-    const raw = execSync("ps aux", { encoding: "utf-8", timeout: 5_000 });
+    const raw = execSync("ps ax -o pid=,command=", { encoding: "utf-8", timeout: 5_000 });
     const pids = raw
       .split("\n")
-      .filter((l) => l.includes("chrome") && l.includes(resolvedDir))
-      .map((l) => l.trim().split(/\s+/)[1])
+      .filter((l) => /chrome/i.test(l) && l.includes(resolvedDir))
+      .map((l) => l.trim().split(/\s+/)[0])
       .filter(Boolean);
 
-    if (pids.length === 0) return;
-
-    console.log(`[session] Closing ${pids.length} Chrome process(es) using profile: ${resolvedDir}`);
-    for (const pid of pids) {
-      try { execSync(`kill ${pid}`, { stdio: "ignore" }); } catch { /* gone */ }
+    if (!pids.length) {
+      console.log("[session] No Chrome process is using this profile.");
+      return 0;
     }
-  } catch { /* no matches */ }
+    console.log(`[session] Closing ${pids.length} Chrome process(es) using this profile: ${pids.join(", ")}`);
+    for (const pid of pids) {
+      try { execSync(`kill ${pid}`, { stdio: "ignore" }); } catch { /* already gone */ }
+    }
+    return pids.length;
+  } catch {
+    return 0;
+  }
 }
 
 function sleep(ms: number): Promise<void> {
