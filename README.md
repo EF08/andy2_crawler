@@ -10,14 +10,22 @@ Built to answer one question every morning: *what's in my feeds that isn't price
 flowchart TD
     subgraph local [Local machine]
         A["Your real Chrome profile<br/>headless by default · CDP"] --> B["Site adapters<br/>x.com · reddit · bloomberg"]
-        C["HTTP feed engines<br/>GlobeNewswire · Google News · EDGAR 8-K"] --> D
+        C["HTTP feed engines<br/>GlobeNewswire · Google News · SEC EDGAR"] --> D
         B --> D["Extract + normalize<br/>+ dedup window"]
-        P["Pluggable sources<br/>10-K/10-Q · annual reports · GPU tracker"] -.planned.-> D
+        P["Idiosyncratic sources<br/>GPU rental prices · satellite imagery"] -.planned.-> D
         D --> E["JSON store"]
     end
     E -->|keyed sync| F["a1a2-command-center<br/>(Express backend on Render)"]
     F --> G["MCP endpoint<br/>/api/crawler/mcp"]
     G --> H["Claude<br/>claude.ai connector + Claude Code"]
+
+    subgraph learn [Learning loop]
+        I["Decision ledger<br/>thesis · verdict · price at scan"]
+        J["Sharpened gates<br/>skills + memory"]
+        I -->|past calls scored<br/>against the tape| J
+    end
+    H -->|alpha scan| I
+    J -->|next run inherits<br/>the correction| H
 ```
 
 The browser path runs **headless by default** — a crawl is background work, so it
@@ -31,6 +39,18 @@ Two acquisition paths feed one store:
 2. **Feed path** — plain HTTP engines for GlobeNewswire, Google News RSS, and SEC EDGAR (8-K filings). No browser needed.
 
 Everything is normalized into one schema, deduplicated over a rolling window, and synced to a backend whose MCP server makes the corpus searchable from any Claude surface — ask claude.ai or Claude Code "what did the feed pick up on $XYZ this week?" and it queries this store.
+
+The third path is the one that compounds. Every alpha scan writes its reasoning back as a
+**decision** — thesis, verdict, and the price at the moment of the call — so the corpus
+records not just what the feed said but what was concluded and what it was worth. Later
+scans read that ledger and score themselves against the tape:
+
+> *"this is the same InP thread the scanner mis-killed on 2026-07-20 at $48.83, and AXTI
+> has since run +44.9% (vs SMH +0.3%) — the edge was real and was missed"*
+
+A miss with a timestamp and a price is a gradient. Those corrections are what get promoted
+into the scan skill's gates and into durable memory, so the next run inherits them rather
+than relearning them.
 
 ## Design decisions
 
@@ -88,15 +108,29 @@ Candidates that fit this shape, roughly easiest first:
 
 | Source | Path | Notes |
 | --- | --- | --- |
-| **Corporate filings beyond 8-K** — 10-K, 10-Q, S-1, 13F/13D | HTTP | The EDGAR engine already exists; this is mostly widening `feeds.edgar.formTypes` and teaching the parser the extra item codes. Cheapest real win. |
-| **Annual reports / investor relations decks** | HTTP + parse | PDFs, so it needs a text-extraction step before it becomes a `FeedItem`. Slower-moving data — a weekly cadence rather than the 15-minute feed pull. |
-| **GPU tracker** (from the sibling project) | direct import | Numeric time series rather than documents, so it does not fit `FeedItem` cleanly. Either normalize each observation into a snapshot with the numbers in `metrics`, or keep it in its own collection and join at query time in the MCP layer. The messier shape is the reason it is worth deciding deliberately rather than forcing it into the text schema. |
-| **Earnings-call transcripts, FRED//macro series, exchange filings (SEDAR, RNS)** | HTTP | Same pattern as EDGAR — a fetcher plus a normalizer. |
+| **More EDGAR form types** — 10-K, 10-Q, S-1, 13F/13D | HTTP, config only | *Not a new source.* The EDGAR engine already pulls filings; these are the same pipeline with different form types, so it is mostly widening `feeds.edgar.formTypes` and teaching the parser the extra item codes. Cheapest real win. |
+| **Annual reports / investor-relations decks** | HTTP + parse | PDFs, so they need a text-extraction step before becoming a `FeedItem`. Slower-moving — a weekly cadence rather than the 15-minute feed pull. |
+| **Earnings-call transcripts, FRED macro series, non-US filings (SEDAR, RNS)** | HTTP | Same shape as EDGAR — a fetcher plus a normalizer. |
+| **Custom GPU rental price tracker** (sibling project) | direct import | The genuinely idiosyncratic one, and the reason this section exists. |
+| **Satellite imagery / other alt-data** | custom | Derived observations rather than documents — same shape question as the GPU tracker. |
 
-Rule of thumb: if it is **text with a timestamp and a source URL**, it belongs in the
-snapshot store and the existing dedup/MCP machinery handles it. If it is **a number
-series**, prefer a sibling collection and join at the MCP layer — forcing metrics into
-a text schema costs more than it saves.
+The last two are the interesting ones, because they are the only proposals here that are
+**not** documents. Everything above them is text with a timestamp and a URL, which the
+existing schema already handles. A rental-price curve or a parking-lot count is a numeric
+series, and the shape question is worth deciding deliberately rather than by default:
+
+- **Normalize into snapshots** — each observation becomes a record with the numbers in
+  `metrics`. Cheapest, and dedup/MCP/search work immediately. But a time series stored as
+  thousands of one-row text documents is awkward to aggregate.
+- **Sibling collection, joined at the MCP layer** — keeps the series in a shape you can
+  actually query (ranges, deltas, correlations) and lets the scan ask *"did the tape move
+  against this idiosyncratic signal?"*, which is exactly the question the decision ledger
+  above is built around.
+
+Rule of thumb: if it is **text with a timestamp and a source URL**, put it in the snapshot
+store and inherit the whole pipeline. If it is **a number series**, prefer the sibling
+collection — forcing metrics into a text schema costs more than it saves.
+
 
 ## Usage
 
