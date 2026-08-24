@@ -21,6 +21,7 @@ const RULE: SiteRule = {
   stallLimit: 3,
   maxFeedScrolls: 5,
   maxAgeDays: 3650,
+  stopAfterKnownBatches: 3,
 };
 
 const SHOTS_DIR = path.resolve("data/screenshots");

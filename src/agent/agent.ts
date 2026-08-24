@@ -24,7 +24,7 @@ const ROOT = path.resolve(__dirname, "..", "..");
 process.chdir(ROOT);
 
 const POLL_MS = 30_000;
-const CRAWL_TIMEOUT_MS = 35 * 60_000;
+const CRAWL_TIMEOUT_MS = 60 * 60_000; // 150k-char site budgets need more headroom than the old 35min
 const FEEDS_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_FEEDS_EVERY_MINUTES = 15; // used until the backend sends its own value
 const LOG_PATH = path.join(ROOT, "data", "agent.log");

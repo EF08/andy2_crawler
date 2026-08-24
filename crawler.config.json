@@ -3,30 +3,40 @@
   "outputPath": "./data/crawl-store.json",
   "chrome": {
     "useSystemProfile": true,
-    "mode": "cdp"
+    "mode": "cdp",
+    "headless": true,
+    "windowMode": "background"
   },
   "targets": [
-    "https://x.com/home",
     "https://www.reddit.com/r/wallstreetbets/search/?q=flair%3ADD&include_over_18=on&sort=new"
   ],
+  "xLists": [
+    { "name": "High signal people", "url": "https://x.com/i/lists/1513647721055461386", "weight": 40 },
+    { "name": "Fintwit", "url": "https://x.com/i/lists/1513647417878618115", "weight": 35 },
+    { "name": "AI", "url": "https://x.com/i/lists/1597115448146898944", "weight": 25 }
+  ],
+  "xOverflow": {
+    "enabled": true,
+    "minLeftoverChars": 2000
+  },
   "siteRules": {
     "xCom": {
-      "maxChars": 40000,
+      "maxChars": 50000,
       "maxCharsPerComment": 700,
       "contentLevel": "feed",
       "stallLimit": 3,
       "maxAgeDays": 35
     },
     "redditCom": {
-      "maxChars": 40000,
+      "maxChars": 150000,
       "maxCharsPerComment": 900,
       "contentLevel": "post",
       "stallLimit": 3,
-      "maxFeedScrolls": 5,
+      "maxFeedScrolls": 15,
       "maxAgeDays": 35
     },
     "bloombergCom": {
-      "maxChars": 20000,
+      "maxChars": 150000,
       "maxCharsPerComment": 600,
       "contentLevel": "post",
       "stallLimit": 3,
@@ -49,7 +59,7 @@
     "maxChars": 200000
   },
   "dedup": {
-    "windowDays": 5
+    "windowDays": 40
   },
   "feeds": {
     "enabled": true,

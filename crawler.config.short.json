@@ -3,7 +3,9 @@
   "outputPath": "./data/crawl-store.json",
   "chrome": {
     "useSystemProfile": true,
-    "mode": "cdp"
+    "mode": "cdp",
+    "headless": true,
+    "windowMode": "background"
   },
   "targets": [
     "https://www.reddit.com/r/wallstreetbets/search/?q=flair%3ADD&include_over_18=on&sort=new"

@@ -18,6 +18,8 @@ export type CrawlSnapshot = {
   metrics: Record<string, string | number>;
   /** URLs visited during post-level expansion (for cross-run dedup). */
   expandedUrls?: string[];
+  /** Name of the X List this snapshot came from (xLists targets only). */
+  listName?: string;
 };
 
 export type CrawlErrorRecord = {

@@ -14,6 +14,7 @@ const baseRule: SiteRule = {
   stallLimit: 3,
   maxFeedScrolls: 10,
   maxAgeDays: 3650,
+  stopAfterKnownBatches: 3,
 };
 
 function loadFixture(name: string): string {

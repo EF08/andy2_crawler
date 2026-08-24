@@ -124,7 +124,8 @@ $window = [Windows.Markup.XamlReader]::Parse($xaml)
 $U = @{}
 foreach ($n in 'Card','Pill','PillDot','BtnMin','BtnClose','Footer',
                'RowAgent','DotAgent','DetAgent','RowCrawl','DotCrawl','DetCrawl',
-               'RowFeeds','DotFeeds','DetFeeds','RowScan','DotScan','DetScan','ScanTable') {
+               'RowFeeds','DotFeeds','DetFeeds',
+               'RowScan','DotScan','DetScan','ScanTable') {
     $U[$n] = $window.FindName($n)
 }
 

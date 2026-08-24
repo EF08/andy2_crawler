@@ -14,6 +14,35 @@ export const SiteRuleSchema = z.object({
   /** Stop scraping once content is older than this many days (posts with no parseable
    *  timestamp are kept). Runs end at char budget OR this age horizon, whichever first. */
   maxAgeDays: z.number().min(1).max(3650).default(35),
+  /** Feed-level only: stop after this many consecutive scroll batches that have posts
+   *  but nothing new. On a chronological feed (X Lists), once a whole batch is already
+   *  known everything deeper is older and known too — no point scrolling to the age horizon. */
+  stopAfterKnownBatches: z.number().int().min(1).max(50).default(3),
+});
+
+/** One X List crawled feed-level at its canonical https://x.com/i/lists/<id> URL.
+ *  Never crawl x.com/home: the For You / topic tabs there are ranked timelines and
+ *  scroll-past impressions poison the account's recommendations. Lists are
+ *  chronological and safe. Find URLs with: npx tsx src/scripts/discover-lists.ts */
+export const XListSchema = z.object({
+  name: z.string().min(1),
+  url: z.string().url(),
+  /** Relative share of siteRules.xCom.maxChars this list gets. Lists are crawled
+   *  highest-weight first; a list that runs short of new content leaves its unspent
+   *  chars to the lists after it. */
+  weight: z.number().positive().max(1000),
+});
+
+/** Overflow pass: once the xLists have run dry, spend the leftover X budget on the
+ *  /home pinned topic tabs (in tab-bar order), and finally on the For You timeline
+ *  itself. CAUTION: unlike Lists these are ranked HomeTimeline surfaces — scraping
+ *  them feeds scroll-past engagement signals back into the account's
+ *  recommendations (the original feed-decay problem). Enabled at Andy's request;
+ *  the leftover-only design keeps exposure as small as the lists allow. */
+export const XOverflowSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Skip the overflow pass entirely when the leftover X budget is below this. */
+  minLeftoverChars: z.number().int().min(0).max(500000).default(2000),
 });
 
 export const BehaviorSchema = z.object({
@@ -38,6 +67,18 @@ export const ChromeProfileSchema = z.object({
   // - "persistent": Playwright launches Chrome itself (shows "controlled" banner)
   // - "cdp": start a normal Chrome with remote debugging and connect over CDP
   mode: z.enum(["persistent", "cdp"]).default("persistent"),
+  // Run Chrome with no visible window at all. This is the default: a crawl is
+  // background work and should never take over the screen. Trade-off: headless
+  // Chrome is easier for bot detection to spot, so the launcher also masks the
+  // "HeadlessChrome" product token in the UA and client hints (see chromeCdp.ts).
+  // Flip to false if a site starts challenging the crawler.
+  headless: z.boolean().default(true),
+  // Where the window sits when headless is false:
+  // - "background": visible, but pushed to the bottom of the z-order and never
+  //   given focus — it sits just above the desktop, under everything else
+  // - "minimized": starts minimized to the taskbar
+  // - "normal": ordinary foreground window (raises itself on every navigation)
+  windowMode: z.enum(["normal", "background", "minimized"]).default("background"),
   cdpPort: z.number().int().min(1024).max(65535).optional(),
   chromeExecutablePath: z.string().min(1).optional(),
   // Advanced: override the detected Chrome user data dir / profile folder.
@@ -110,6 +151,10 @@ export const CrawlerConfigSchema = z.object({
   outputPath: z.string().min(1),
   /** Browser crawl targets. May be empty for feeds-only configs (no Chrome launched). */
   targets: z.array(z.string().url()),
+  /** X Lists to crawl, sharing siteRules.xCom.maxChars split by weight (see XListSchema). */
+  xLists: z.array(XListSchema).default([]),
+  /** Spend leftover X budget on /home topic tabs + For You (see XOverflowSchema). */
+  xOverflow: XOverflowSchema.prefault({}),
   siteRules: z.object({
     xCom: SiteRuleSchema,
     redditCom: SiteRuleSchema,
@@ -117,7 +162,7 @@ export const CrawlerConfigSchema = z.object({
   }),
   behavior: BehaviorSchema,
   schedule: ScheduleSchema,
-  chrome: ChromeProfileSchema.default({ useSystemProfile: false, mode: "persistent" }),
+  chrome: ChromeProfileSchema.prefault({}),
   clipboard: ClipboardSchema.default({ maxChars: 50000 }),
   dedup: DedupSchema.default({ windowDays: 5 }),
   feeds: FeedsConfigSchema.prefault({}),
@@ -130,6 +175,8 @@ export const CrawlerConfigSchema = z.object({
 });
 
 export type SiteRule = z.infer<typeof SiteRuleSchema>;
+export type XList = z.infer<typeof XListSchema>;
+export type XOverflow = z.infer<typeof XOverflowSchema>;
 export type Behavior = z.infer<typeof BehaviorSchema>;
 export type Schedule = z.infer<typeof ScheduleSchema>;
 export type ClipboardConfig = z.infer<typeof ClipboardSchema>;

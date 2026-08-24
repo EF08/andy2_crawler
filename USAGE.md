@@ -1,7 +1,8 @@
 # Simple Usage Guide
 
-This app crawls `x.com`, Reddit, and Bloomberg using a real Chrome window,
-and pulls market/business news + SEC EDGAR filings from HTTP feeds (no browser).
+This app crawls `x.com`, Reddit, and Bloomberg using a real Chrome profile
+(headless by default — no window appears), and pulls market/business news +
+SEC EDGAR filings from HTTP feeds (no browser).
 
 ## 1) One-time setup
 
@@ -36,9 +37,47 @@ npm run crawl
 ```
 
 What happens:
-- A Chrome window opens.
-- If not logged in yet, log into sites you need (X/Reddit/etc.).
+- Chrome starts in the background with no window (see "Browser visibility" below).
+- If not logged in yet, run `npm run login` and log into the sites you need
+  (X/Reddit/etc.) — that opens a normal, visible window on the crawler profile.
 - Crawl runs and data is written to `outputPath` (default: `data/crawl-store.json`).
+
+## 3b) Browser visibility
+
+Two settings under `chrome` in the config control whether you ever see the crawler:
+
+```json
+"chrome": {
+  "headless": true,
+  "windowMode": "background"
+}
+```
+
+- **`headless`** (default `true`) — Chrome runs with no window at all. The crawl uses
+  the same logged-in profile and behaves identically; it just never touches your screen.
+  Headless Chrome would normally announce itself as `HeadlessChrome/<version>` in its
+  user-agent, so the launcher replaces that with the ordinary `Chrome/<version>` string.
+  Set to `false` if a site ever starts challenging the crawler.
+
+- **`windowMode`** (default `"background"`) — only applies when `headless` is `false`:
+  - `"background"` — the window opens, is immediately pushed to the bottom of the
+    z-order, and focus is handed straight back to whatever you were doing. It sits
+    one step above the desktop, under all your other windows. The crawler also stops
+    calling `bringToFront()`, so it never jumps back over you mid-crawl.
+  - `"minimized"` — starts minimized to the taskbar.
+  - `"normal"` — the old behaviour: a maximized window that raises itself on every
+    page load. Use this when you want to watch the crawl.
+
+A hidden or covered window is "occluded" as far as Chrome is concerned, and occluded
+windows get throttled — so `background` and `minimized` also pass the flags that keep
+timers and renderers running at full speed. Infinite-scroll feeds crawl at the same
+rate whether you can see them or not.
+
+Check a mode end to end (fingerprint + X login) with:
+
+```bash
+npx tsx src/scripts/test-headless.ts [configPath]
+```
 
 ## 4) Run crawler (dry run)
 

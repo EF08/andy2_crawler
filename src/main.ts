@@ -42,7 +42,9 @@ async function start(): Promise<void> {
   console.log(`[main] Output: ${config.outputPath}`);
 
   // Feeds-only configs have no browser targets — never launch Chrome for them.
-  const session = config.targets.length > 0 ? await launchSession(config) : null;
+  const hasBrowserTargets =
+    config.targets.length > 0 || config.xLists.length > 0 || config.xOverflow.enabled;
+  const session = hasBrowserTargets ? await launchSession(config) : null;
   if (!session) console.log("[main] No browser targets — feeds-only run.");
   let runCounter = 0;
 

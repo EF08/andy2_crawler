@@ -3,7 +3,9 @@
   "outputPath": "C:\\Users\\andyf\\andy2_crawler\\data\\crawl-store.json",
   "chrome": {
     "useSystemProfile": true,
-    "mode": "cdp"
+    "mode": "cdp",
+    "headless": true,
+    "windowMode": "background"
   },
   "targets": [],
   "siteRules": {

@@ -11,6 +11,7 @@ import { expandWithCharBudget } from "./expand";
 import { paginate } from "./paginate";
 import { scrollOnce, getScrollHeight } from "./paginate";
 import { humanizeBeforeExtract, randomWait } from "../browser/humanize";
+import { canFocusBrowserWindow } from "../browser/session";
 import { collectNavDebug } from "./pageSignals";
 import { progressBar } from "./progress";
 
@@ -52,6 +53,7 @@ async function crawlFeedLevel(
   runId: string,
   target: string,
   known: KnownContent,
+  listName?: string,
 ): Promise<CrawlSnapshot> {
   // Pre-seed with known texts so duplicates are auto-skipped
   const seenTexts = new Set<string>(known.texts);
@@ -60,6 +62,9 @@ async function crawlFeedLevel(
   let totalSkipped = 0;
   let totalTooOld = 0;
   let feedTitle = "";
+  // Consecutive scroll batches that had posts but nothing new — on a
+  // chronological feed that means we're caught up (everything deeper is older).
+  let allKnownStreak = 0;
 
   // Age horizon: posts older than maxAgeDays are skipped; a whole batch of them stops the run
   const cutoffMs = Date.now() - siteRule.maxAgeDays * 86_400_000;
@@ -80,6 +85,7 @@ async function crawlFeedLevel(
     allPosts.push(post);
     cumulativeChars += post.text.length;
   }
+  if (initial.posts.some((p) => p.text) && allPosts.length === 0) allKnownStreak = 1;
 
   console.log(
     `[crawl] ${progressBar(cumulativeChars, siteRule.maxChars)} ` +
@@ -141,6 +147,21 @@ async function crawlFeedLevel(
       console.log(`[crawl] Feed content is older than ${siteRule.maxAgeDays} days — stopping`);
       break;
     }
+
+    // Chronological catch-up: batches keep rendering posts but none are new →
+    // everything deeper is older and already stored. Don't scroll to the age horizon.
+    const postsInBatch = batch.posts.filter((p) => p.text).length;
+    if (postsInBatch > 0 && newInBatch === 0) {
+      allKnownStreak++;
+      if (allKnownStreak >= siteRule.stopAfterKnownBatches) {
+        console.log(
+          `[crawl] ${allKnownStreak} consecutive batches with nothing new — feed is caught up, stopping`,
+        );
+        break;
+      }
+    } else if (newInBatch > 0) {
+      allKnownStreak = 0;
+    }
   }
 
   if (totalSkipped > 0) {
@@ -170,6 +191,7 @@ async function crawlFeedLevel(
       scrolls,
       skippedKnown: totalSkipped,
     },
+    ...(listName ? { listName } : {}),
   };
 }
 
@@ -375,8 +397,132 @@ async function crawlPostLevel(
 }
 
 // ---------------------------------------------------------------------------
+// Overflow: /home topic tabs + For You (leftover X budget only)
+// ---------------------------------------------------------------------------
+
+type SourceChars = { name: string; chars: number };
+
+/**
+ * Spends the leftover X char budget on the /home pinned tabs, in tab-bar order,
+ * finishing with the For You timeline itself. Tabs matching an xLists name are
+ * skipped (first match wins, so a topic tab that shares a list's name — e.g. the
+ * second "AI" — still gets crawled). Tabs have no URLs of their own: each source
+ * is reached by clicking its tab, then crawled feed-level like a list.
+ */
+async function crawlHomeOverflow(
+  page: Page,
+  config: CrawlerConfig,
+  store: JsonStore,
+  runId: string,
+  dryRun: boolean,
+  budget: number,
+): Promise<SourceChars[]> {
+  const adapter = resolveAdapter("https://x.com/home");
+  if (!adapter) return [];
+  const baseRule = config.siteRules.xCom;
+
+  console.log(`[engine] Overflow: ${budget} X chars unspent — moving to /home topic tabs`);
+  await page.goto("https://x.com/home", { waitUntil: "domcontentloaded" });
+  await randomWait(config.behavior.waitMinMs, config.behavior.waitMaxMs);
+
+  const tabTexts: string[] = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[role="tablist"] [role="tab"]')).map(
+      (t) => (t.textContent ?? "").trim(),
+    ),
+  );
+  if (tabTexts.length < 2) {
+    console.warn("[engine] Overflow: no /home tab bar found — skipping overflow pass");
+    return [];
+  }
+
+  // Everything after "For you"/"Following" that isn't one of the xLists,
+  // in tab order; For You itself goes last.
+  const unusedListNames = config.xLists.map((l) => l.name);
+  const sources: Array<{ tabIndex: number; name: string }> = [];
+  for (let i = 2; i < tabTexts.length; i++) {
+    const listIdx = unusedListNames.indexOf(tabTexts[i]);
+    if (listIdx >= 0) {
+      unusedListNames.splice(listIdx, 1);
+      continue;
+    }
+    sources.push({ tabIndex: i, name: tabTexts[i] });
+  }
+  sources.push({ tabIndex: 0, name: "For you" });
+
+  let budgetLeft = budget;
+  let weightLeft = sources.length;
+  const spent: SourceChars[] = [];
+
+  for (const source of sources) {
+    // Equal split of whatever is still unspent — a thin tab spills to the rest.
+    const cap = weightLeft > 0 ? Math.floor(budgetLeft / weightLeft) : 0;
+    weightLeft--;
+    if (cap < 1) {
+      console.log(`[engine] Overflow "${source.name}": X char budget exhausted — skipping`);
+      continue;
+    }
+
+    try {
+      await page
+        .locator('[role="tablist"] [role="tab"]')
+        .nth(source.tabIndex)
+        .click({ timeout: 10_000 });
+    } catch (error) {
+      const message = (error as Error).message;
+      console.warn(`[engine] Overflow "${source.name}": tab click failed — ${message}`);
+      store.appendError({
+        runId,
+        site: adapter.site,
+        sourceUrl: "https://x.com/home",
+        stage: "overflowTabClick",
+        message: `${source.name}: ${message}`,
+      });
+      continue;
+    }
+    await randomWait(config.behavior.waitMinMs, config.behavior.waitMaxMs);
+
+    const label = `overflow:${source.name}`;
+    console.log(`[engine] Overflow "${source.name}": char budget ${cap} of ${budgetLeft} unspent`);
+
+    try {
+      const known = store.getKnownContent(adapter.site, config.dedup.windowDays);
+      const rule = { ...baseRule, maxChars: cap };
+      // Distinct sourceUrl per tab — canonicalizeUrl keeps query params, so each
+      // source gets its own slot in the store.
+      const sourceUrl = `https://x.com/home?tab=${encodeURIComponent(source.name)}&pos=${source.tabIndex}`;
+      const snapshot = await crawlFeedLevel(page, adapter, rule, runId, sourceUrl, known, label);
+
+      const chars = totalPostChars(snapshot);
+      budgetLeft = Math.max(0, budgetLeft - chars);
+      spent.push({ name: label, chars });
+
+      if (dryRun) {
+        console.log(`[engine] Dry-run: ${chars} chars, ${snapshot.content.posts.length} posts from ${label}`);
+      } else {
+        store.upsertSnapshot(snapshot);
+        console.log(`[engine] Stored: ${chars} chars, ${snapshot.content.posts.length} posts for ${label}`);
+      }
+    } catch (error) {
+      const message = (error as Error).message;
+      console.warn(`[engine] Overflow "${source.name}" failed: ${message}`);
+      store.appendError({
+        runId,
+        site: adapter.site,
+        sourceUrl: "https://x.com/home",
+        stage: "overflowCrawl",
+        message: `${source.name}: ${message}`,
+      });
+    }
+  }
+
+  return spent;
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
+
+type PlannedTarget = { url: string; listName?: string; weight?: number };
 
 export async function runOnePass(
   context: BrowserContext,
@@ -385,23 +531,56 @@ export async function runOnePass(
   runId: string,
   dryRun: boolean,
 ): Promise<void> {
-  const limitedTargets = config.targets.slice(0, config.behavior.maxPagesPerRun);
+  // X Lists first (highest weight first — they claim shared tweets on dedup),
+  // then the regular targets. maxPagesPerRun caps only the regular targets.
+  const listTargets: PlannedTarget[] = [...config.xLists]
+    .sort((a, b) => b.weight - a.weight)
+    .map((l) => ({ url: l.url, listName: l.name, weight: l.weight }));
+  const genericTargets: PlannedTarget[] = config.targets
+    .slice(0, config.behavior.maxPagesPerRun)
+    .map((url) => ({ url }));
+  const plan = [...listTargets, ...genericTargets];
+
+  // The lists share ONE X char budget (siteRules.xCom.maxChars), split by weight.
+  // Each list's cap is its weight-share of whatever budget is still unspent, so a
+  // list with little new content spills its leftover to the lists after it.
+  let xBudgetLeft = config.siteRules.xCom.maxChars;
+  let xWeightLeft = listTargets.reduce((sum, t) => sum + (t.weight ?? 0), 0);
+  const xSummary: SourceChars[] = [];
 
   // Reuse the first existing page (preserves CDP context stability).
-  // bringToFront ensures it's visible to the user during the crawl.
+  // bringToFront makes it the active tab, which also raises the OS window — so it
+  // is skipped when the window is deliberately parked behind everything else.
+  const mayFocus = canFocusBrowserWindow(config);
   const page = context.pages()[0] ?? (await context.newPage());
-  await page.bringToFront();
-  console.log(`[engine] Using page (${context.pages().length} tab(s) open) — brought to front`);
+  if (mayFocus) await page.bringToFront();
+  console.log(
+    `[engine] Using page (${context.pages().length} tab(s) open)` +
+      (mayFocus ? " — brought to front" : " — left in the background"),
+  );
 
   page.setDefaultNavigationTimeout(config.behavior.navigationTimeoutMs);
 
-  for (const target of limitedTargets) {
+  for (const planned of plan) {
+    const target = planned.url;
     const adapter = resolveAdapter(target);
     if (!adapter) {
       console.warn(`[engine] Skipping unsupported target: ${target}`);
       continue;
     }
-    const siteRule = getSiteRule(config, new URL(target).hostname);
+    let siteRule = getSiteRule(config, new URL(target).hostname);
+
+    if (planned.listName) {
+      const weight = planned.weight ?? 0;
+      const cap = xWeightLeft > 0 ? Math.floor((xBudgetLeft * weight) / xWeightLeft) : 0;
+      xWeightLeft -= weight;
+      if (cap < 1) {
+        console.log(`[engine] Skipping list "${planned.listName}" — X char budget exhausted`);
+        continue;
+      }
+      siteRule = { ...siteRule, maxChars: cap };
+      console.log(`[engine] List "${planned.listName}": char budget ${cap} of ${xBudgetLeft} unspent`);
+    }
 
     // Load known content from store for cross-run dedup
     const known = store.getKnownContent(adapter.site, config.dedup.windowDays);
@@ -416,7 +595,7 @@ export async function runOnePass(
     while (attempt <= config.behavior.retriesPerTarget) {
       attempt += 1;
       try {
-        await page.bringToFront();
+        if (mayFocus) await page.bringToFront();
         console.log(`[engine] Visiting ${target} (attempt ${attempt})`);
         const navStart = Date.now();
         const response = await page.goto(target, { waitUntil: "domcontentloaded" });
@@ -467,20 +646,28 @@ export async function runOnePass(
             );
           }
         } else {
-          const snapshot = await crawlFeedLevel(page, adapter, siteRule, runId, target, known);
-          
+          const snapshot = await crawlFeedLevel(
+            page, adapter, siteRule, runId, target, known, planned.listName,
+          );
+
           const charCount = totalPostChars(snapshot);
           const commentCount = snapshot.content.comments.length;
           const postCount = snapshot.content.posts.length;
 
+          if (planned.listName) {
+            xBudgetLeft = Math.max(0, xBudgetLeft - charCount);
+            xSummary.push({ name: planned.listName, chars: charCount });
+          }
+
+          const label = planned.listName ? `list "${planned.listName}" (${target})` : target;
           if (dryRun) {
             console.log(
-              `[engine] Dry-run: ${charCount} chars, ${postCount} posts, ${commentCount} comments from ${target}`,
+              `[engine] Dry-run: ${charCount} chars, ${postCount} posts, ${commentCount} comments from ${label}`,
             );
           } else {
             store.upsertSnapshot(snapshot);
             console.log(
-              `[engine] Stored: ${charCount} chars, ${postCount} posts, ${commentCount} comments for ${target}`,
+              `[engine] Stored: ${charCount} chars, ${postCount} posts, ${commentCount} comments for ${label}`,
             );
           }
         }
@@ -500,5 +687,37 @@ export async function runOnePass(
         }
       }
     }
+  }
+
+  // Overflow pass (opt-in): leftover X budget → /home topic tabs, For You last.
+  if (config.xOverflow.enabled) {
+    if (xBudgetLeft >= config.xOverflow.minLeftoverChars) {
+      try {
+        const overflowSpent = await crawlHomeOverflow(page, config, store, runId, dryRun, xBudgetLeft);
+        xSummary.push(...overflowSpent);
+      } catch (error) {
+        console.warn(`[engine] Overflow pass failed: ${(error as Error).message}`);
+        store.appendError({
+          runId,
+          site: "x.com",
+          sourceUrl: "https://x.com/home",
+          stage: "overflowPass",
+          message: (error as Error).message,
+        });
+      }
+    } else {
+      console.log(
+        `[engine] Overflow: skipped — leftover ${xBudgetLeft} chars < minLeftoverChars ` +
+        `${config.xOverflow.minLeftoverChars}`,
+      );
+    }
+  }
+
+  if (xSummary.length > 0) {
+    const total = xSummary.reduce((sum, entry) => sum + entry.chars, 0);
+    console.log(
+      `[engine] X chars by source: ${xSummary.map((e) => `${e.name}=${e.chars}`).join(", ")}` +
+      ` · total=${total}/${config.siteRules.xCom.maxChars}`,
+    );
   }
 }

@@ -3,11 +3,17 @@
   "outputPath": "./data/crawl-store.json",
   "chrome": {
     "useSystemProfile": true,
-    "mode": "cdp"
+    "mode": "cdp",
+    "headless": true,
+    "windowMode": "background"
   },
   "targets": [
-    "https://x.com/home",
     "https://www.reddit.com/r/wallstreetbets/search/?q=flair%3ADD&include_over_18=on&sort=new"
+  ],
+  "xLists": [
+    { "name": "High signal people", "url": "https://x.com/i/lists/1513647721055461386", "weight": 40 },
+    { "name": "Fintwit", "url": "https://x.com/i/lists/1513647417878618115", "weight": 35 },
+    { "name": "AI", "url": "https://x.com/i/lists/1597115448146898944", "weight": 25 }
   ],
   "siteRules": {
     "xCom": {
@@ -49,7 +55,7 @@
     "maxChars": 200000
   },
   "dedup": {
-    "windowDays": 5
+    "windowDays": 40
   },
   "backend": {
     "enabled": true,
