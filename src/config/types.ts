@@ -147,6 +147,16 @@ export const BackendSchema = z.object({
 });
 
 export const CrawlerConfigSchema = z.object({
+  searchJobId: z.string().optional(),
+  searchReportPath: z.string().optional(),
+  xSearches: z.array(z.object({
+    query: z.string().trim().min(1).max(512),
+    profile: z.string().max(80).optional(),
+    maxPosts: z.number().int().min(1).max(100).default(30),
+    since: z.string().datetime({ offset: true }).optional(),
+    maxScrolls: z.number().int().min(1).max(100).default(40),
+    timeoutMs: z.number().int().min(5000).max(300000).default(120000),
+  })).max(20).default([]),
   profileDir: z.string().min(1),
   outputPath: z.string().min(1),
   /** Browser crawl targets. May be empty for feeds-only configs (no Chrome launched). */

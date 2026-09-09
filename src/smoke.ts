@@ -25,6 +25,7 @@ async function run(): Promise<void> {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
+  try {
 
   const xAdapter = new XAdapter();
   const redditAdapter = new RedditAdapter();
@@ -57,9 +58,11 @@ async function run(): Promise<void> {
     "Bloomberg adapter should find related article link",
   );
 
-  await context.close();
-  await browser.close();
   console.log("[smoke] All adapter smoke checks passed.");
+  } finally {
+    await context.close();
+    await browser.close();
+  }
 }
 
 run().catch((error) => {

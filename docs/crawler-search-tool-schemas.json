@@ -1,0 +1,347 @@
+[
+  {
+    "name": "crawler_search",
+    "description": "STORED-FEED SEARCH ONLY. Searches previously collected titles, posts and comments; does not contact X or collect fresh posts. Use crawler_search_live for a new X Latest search.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "site": {
+          "type": "string",
+          "enum": [
+            "x.com",
+            "reddit.com",
+            "bloomberg.com",
+            "globenewswire.com",
+            "news.google.com",
+            "sec.gov"
+          ],
+          "description": "filter to one site (omit = all). News sites: globenewswire.com = press releases, news.google.com = Bloomberg/Reuters/WSJ headlines, sec.gov = EDGAR filings"
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3650,
+          "default": 30,
+          "description": "lookback window in days (default 30; archive reaches back to March 2025)"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "crawler_search_live",
+    "description": "Queue a fresh X Latest search on the PC using its existing authenticated browser. Returns job ID promptly; use crawler_search_job_results. No posting or paid API.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "maxPosts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Posts per query, default 30. Independent of timeline budgets."
+        },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Inclusive publication cutoff, ISO UTC or explicit offset. Web date filter plus exact timestamp filtering."
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[\\w.:/-]{1,128}$",
+          "description": "Required idempotency key. Reuse for retries; new key for a new collection."
+        }
+      },
+      "required": [
+        "query",
+        "requestId"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "crawler_search_profile_run",
+    "description": "Queue one collection of every saved profile query. Independent per-query budget; same single-job PC queue.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "enum": [
+            "hynix-watch"
+          ],
+          "default": "hynix-watch"
+        },
+        "maxPosts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Posts per query, default 30. Independent of timeline budgets."
+        },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Inclusive publication cutoff, ISO UTC or explicit offset. Web date filter plus exact timestamp filtering."
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[\\w.:/-]{1,128}$",
+          "description": "Required idempotency key. Reuse for retries; new key for a new collection."
+        }
+      },
+      "required": [
+        "requestId"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "crawler_search_job_results",
+    "description": "Read-only job status, explicit collection health, and paginated individual tweets. Partial results can grow while running; read from the beginning after completion.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "jobId": {
+          "type": "string",
+          "pattern": "^[a-f\\d]{24}$"
+        },
+        "cursor": {
+          "type": "string",
+          "pattern": "^[a-f\\d]{24}$"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 25,
+          "default": 10
+        },
+        "maxChars": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 100000,
+          "default": 30000,
+          "description": "Approximate post plus quote text budget per page. One complete post may exceed it, explicitly flagged; text is not silently cut."
+        }
+      },
+      "required": [
+        "jobId"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "crawler_search_profile_get",
+    "description": "Read saved query strings, independent budgets and enabled state. Hourly main gathers include enabled profiles.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "enum": [
+            "hynix-watch"
+          ],
+          "default": "hynix-watch"
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "crawler_search_profile_configure",
+    "description": "Set bounded per-query collection budgets or include/exclude this profile from scheduled main gathers. Does not change timeline budgets or the main gather schedule.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "enum": [
+            "hynix-watch"
+          ],
+          "default": "hynix-watch"
+        },
+        "maxPosts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Posts per query, default 30. Independent of timeline budgets."
+        },
+        "maxScrolls": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 5000,
+          "maximum": 300000
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "crawler_search_profile_posts",
+    "description": "Retrieve unacknowledged new or meaningfully updated tweets, deduplicated by tweet ID for this profile and consumer. Returns a receipt. Omit cursor at each new review; use nextCursor only to page within that review. Does not acknowledge or touch alpha scan flags.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "enum": [
+            "hynix-watch"
+          ],
+          "default": "hynix-watch"
+        },
+        "consumer": {
+          "type": "string",
+          "pattern": "^[\\w.-]{1,80}$",
+          "description": "Independent reviewer identity, e.g. hynix-watcher."
+        },
+        "cursor": {
+          "type": "string",
+          "pattern": "^[a-f\\d]{24}$"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 25,
+          "default": 10
+        },
+        "maxChars": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 100000,
+          "default": 30000,
+          "description": "Approximate post plus quote text budget per page. One complete post may exceed it, explicitly flagged; text is not silently cut."
+        }
+      },
+      "required": [
+        "consumer"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "crawler_search_profile_ack",
+    "description": "Acknowledge exactly the tweet versions in a returned receipt AFTER successful review. A newer edit stays pending. Idempotent; never changes alpha scanner flags.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "enum": [
+            "hynix-watch"
+          ],
+          "default": "hynix-watch"
+        },
+        "consumer": {
+          "type": "string",
+          "pattern": "^[\\w.-]{1,80}$",
+          "description": "Independent reviewer identity, e.g. hynix-watcher."
+        },
+        "receipt": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "consumer",
+        "receipt"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "crawler_search_health",
+    "description": "Actual per-query collection health: last success, newest publication timestamp, collected count, truncation, stale flag and explicit errors. Online PC alone does not mean fresh results.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "enum": [
+            "hynix-watch"
+          ],
+          "default": "hynix-watch"
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  }
+]

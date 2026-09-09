@@ -71,5 +71,49 @@
   "backend": {
     "enabled": true,
     "baseUrl": "https://a1a2-command-center.onrender.com"
-  }
+  },
+  "xSearches": [
+    {
+      "query": "($SKHY OR \"SK Hynix\" OR 하이닉스)",
+      "profile": "hynix-watch",
+      "maxPosts": 30,
+      "maxScrolls": 40,
+      "timeoutMs": 120000
+    },
+    {
+      "query": "($NVDA OR NVIDIA) (HBM OR orders OR supply OR delay)",
+      "profile": "hynix-watch",
+      "maxPosts": 30,
+      "maxScrolls": 40,
+      "timeoutMs": 120000
+    },
+    {
+      "query": "($MU OR Micron OR Samsung) (HBM OR capacity OR pricing)",
+      "profile": "hynix-watch",
+      "maxPosts": 30,
+      "maxScrolls": 40,
+      "timeoutMs": 120000
+    },
+    {
+      "query": "(Microsoft OR Amazon OR Google OR Meta OR CoreWeave) (capex OR cancellation OR \"push out\" OR delay)",
+      "profile": "hynix-watch",
+      "maxPosts": 30,
+      "maxScrolls": 40,
+      "timeoutMs": 120000
+    },
+    {
+      "query": "(TSMC OR CoWoS) (capacity OR orders OR delay)",
+      "profile": "hynix-watch",
+      "maxPosts": 30,
+      "maxScrolls": 40,
+      "timeoutMs": 120000
+    },
+    {
+      "query": "(HBM OR DRAM) (pricing OR inventory OR qualification)",
+      "profile": "hynix-watch",
+      "maxPosts": 30,
+      "maxScrolls": 40,
+      "timeoutMs": 120000
+    }
+  ]
 }

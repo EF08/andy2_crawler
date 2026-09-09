@@ -20,6 +20,7 @@ export type CrawlSnapshot = {
   expandedUrls?: string[];
   /** Name of the X List this snapshot came from (xLists targets only). */
   listName?: string;
+  search?: { query: string; profile?: string; jobId?: string };
 };
 
 export type CrawlErrorRecord = {

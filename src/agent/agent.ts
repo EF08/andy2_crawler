@@ -43,7 +43,7 @@ const ALLOWED_HOSTS = ["x.com", "reddit.com", "bloomberg.com"];
 
 type Job = {
   _id: string;
-  params?: { configFile?: string; targets?: string[]; maxCharsPerSite?: number };
+  params?: { configFile?: string; targets?: string[]; maxCharsPerSite?: number; xSearches?: unknown[]; searchOnly?: boolean };
   source?: string;
 };
 type Schedule = {
@@ -94,6 +94,7 @@ const HOSTNAME = os.hostname();
 async function api(pathname: string, body: unknown): Promise<any> {
   const res = await fetch(new URL(pathname, BASE_URL).toString(), {
     method: "POST",
+    signal: AbortSignal.timeout(30000),
     headers: { "content-type": "application/json", "x-crawler-key": KEY as string },
     body: JSON.stringify(body ?? {}),
   });
@@ -105,6 +106,12 @@ async function api(pathname: string, body: unknown): Promise<any> {
 function buildJobConfig(params: Job["params"], outPath: string = JOB_CONFIG_PATH): string {
   const fileKey = params?.configFile && CONFIG_FILES[params.configFile] ? params.configFile : "main";
   const base = JSON.parse(fs.readFileSync(path.join(ROOT, CONFIG_FILES[fileKey]), "utf-8"));
+  if (params?.xSearches) base.xSearches = params.xSearches;
+  if (params?.searchOnly) {
+    base.targets = []; base.xLists = []; base.xOverflow = { enabled: false };
+    base.feeds = { ...(base.feeds || {}), enabled: false };
+    base.xSearches = params.xSearches || [];
+  }
 
   if (Array.isArray(params?.targets) && params.targets.length > 0) {
     const valid = params.targets.filter((t) => {
@@ -113,7 +120,11 @@ function buildJobConfig(params: Job["params"], outPath: string = JOB_CONFIG_PATH
         return u.protocol === "https:" && ALLOWED_HOSTS.some((h) => u.hostname === h || u.hostname.endsWith("." + h));
       } catch { return false; }
     }).slice(0, 6);
-    if (valid.length > 0) base.targets = valid;
+    if (valid.length > 0) {
+      base.targets = valid;
+      base.xLists = []; base.xOverflow = { enabled: false }; base.xSearches = [];
+      base.feeds = { ...(base.feeds || {}), enabled: false };
+    }
     if (valid.length !== params.targets.length) log(`Job targets: dropped ${params.targets.length - valid.length} disallowed URL(s)`);
   }
 
@@ -127,9 +138,12 @@ function buildJobConfig(params: Job["params"], outPath: string = JOB_CONFIG_PATH
   // temp config lives in data/, so relative paths must be re-anchored to the repo root
   base.profileDir = path.join(ROOT, "profiles", "automation-profile");
   base.outputPath = path.join(ROOT, "data", "crawl-store.json");
+  base.searchJobId = currentJob?._id;
+  base.searchReportPath = path.join(ROOT, 'data', `search-report-${currentJob?._id ?? 'feeds'}.json`);
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, JSON.stringify(base, null, 2));
+  loadConfig(outPath); // Apply the same strict bounded query/budget schema to remote jobs.
   return outPath;
 }
 
@@ -198,21 +212,27 @@ function runJob(job: Job): void {
     clearTimeout(timeout);
     const logTail = tail.join("").slice(-800);
     const stored = (logTail.match(/\[engine\] Stored: [^\n]+/g) || []).slice(-3);
+    let searchReport: any;
+    try { searchReport = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', `search-report-${job._id}.json`), 'utf8')); } catch { /* no search report */ }
     log(`Job ${job._id}: crawl exited with code ${code}`);
-    void completeJob(job, code === 0, { exitCode: code, stored, logTail: stored.length ? undefined : logTail }, code === 0 ? null : `exit code ${code}`);
+    void completeJob(job, code === 0, { exitCode: code, stored, ...searchReport, logTail: stored.length ? undefined : logTail }, code === 0 ? null : `exit code ${code}`);
   });
 }
 
 async function completeJob(job: Job, ok: boolean, result: unknown, error: string | null): Promise<void> {
-  currentJob = null;
   currentChild = null;
-  writeLocalStatus();
-  try {
-    await api(`/api/crawler/agent/jobs/${job._id}/complete`, { ok, result, error });
-    log(`Job ${job._id}: reported ${ok ? "done" : "failed"}`);
-  } catch (e) {
-    log(`Job ${job._id}: could not report completion: ${(e as Error).message}`);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await api(`/api/crawler/agent/jobs/${job._id}/complete`, { ok, result, error });
+      log(`Job ${job._id}: reported ${ok ? "done" : "failed"}`);
+      break;
+    } catch (e) {
+      log(`Job ${job._id}: could not report completion (${attempt + 1}/3): ${(e as Error).message}`);
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 2000 * 2 ** attempt));
+    }
   }
+  currentJob = null;
+  writeLocalStatus();
 }
 
 /* ── feeds pull runner ──
@@ -358,7 +378,7 @@ async function main(): Promise<void> {
       // Render free tier cold-starts + reboots happen; just keep polling
       if (failStreak <= 3 || failStreak % 20 === 0) log(`Poll failed (${failStreak}x): ${(e as Error).message}`);
     }
-    await sleepUntilNextTick(fastNext ? 500 : POLL_MS);
+    await sleepUntilNextTick(fastNext ? 500 : Math.min(POLL_MS * 2 ** Math.min(failStreak, 3), 240000));
   }
 }
 

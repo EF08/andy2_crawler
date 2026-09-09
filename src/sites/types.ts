@@ -11,6 +11,15 @@ export type ContentItem = {
   text: string;
   author?: string;
   timestamp?: string;
+  tweetId?: string;
+  url?: string;
+  linkedSourceUrls?: string[];
+  quotedPost?: { tweetId?: string; url?: string; author?: string; text: string; timestamp?: string };
+  truncatedText?: boolean;
+  unreadImageContent?: boolean;
+  capturedAtIso?: string;
+  matchingQuery?: string;
+  collectionRunId?: string;
 };
 
 export type ExtractedRecord = {

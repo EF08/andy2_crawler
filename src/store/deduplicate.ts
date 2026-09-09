@@ -35,6 +35,7 @@ function deduplicateItems(items: ContentItem[]): ContentItem[] {
 
 /** Build a fingerprint for a snapshot based on its post content. */
 function contentFingerprint(snap: CrawlSnapshot): string {
+  if (snap.search) return snap.id; // Search run provenance and meaningful edits must survive cleanup.
   const postText = snap.content.posts.map((p) => p.text).join("|");
   return `${snap.content.title ?? ""}|${postText.slice(0, 500)}`;
 }
@@ -43,6 +44,7 @@ function contentFingerprint(snap: CrawlSnapshot): string {
 
 /** Deduplicate posts and comments inside a single snapshot (mutates in place). */
 function deduplicateSnapshot(snap: CrawlSnapshot): void {
+  if (snap.search) return;
   snap.content.posts = deduplicateItems(snap.content.posts);
   snap.content.comments = deduplicateItems(snap.content.comments);
 }

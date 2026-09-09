@@ -146,6 +146,8 @@ npm run agent        # or: always-on daemon that takes remote jobs via the backe
 
 Config presets (`crawler.config.*.json`) cover full runs, short smoke runs, and feeds-only runs; `npm run feeds` pulls the news/EDGAR feeds with no browser at all.
 
+Targeted X Latest searches use the same browser and queue. The saved `hynix-watch` profile runs with hourly gathers, with 30 posts per query independent of timeline budgets. See [X search tools and monitoring workflow](docs/X-SEARCH.md), [argument schemas](docs/crawler-search-tool-schemas.json), and [live acceptance results](docs/hynix-watch-acceptance.md).
+
 ## Stack
 
 TypeScript · Playwright + Chrome DevTools Protocol · RSS/Atom + SEC EDGAR · Node/Express + MongoDB (backend) · Model Context Protocol
