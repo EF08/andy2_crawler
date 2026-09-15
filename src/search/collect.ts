@@ -22,7 +22,7 @@ export function searchUrl(query: string, since?: string): string {
 export function classifySearchFailure(url: string, text: string, status?: number): string | null {
   if (status === 429 || /rate limit|too many requests|exceeded.*limit/i.test(text)) return 'rate_limited';
   if (status === 401 || /\/i\/flow\/login|\/login(?:\?|$)/.test(url) || /sign in to x|log in to x/i.test(text)) return 'login_failure';
-  if (status === 403 || /verify you are human|unusual activity|account.*locked|authenticate your account/i.test(text)) return 'access_challenge';
+  if (status === 403 || /verify you are human|unusual activity|\baccount\b[^\r\n.!?]{0,80}\blocked\b|authenticate your account/i.test(text)) return 'access_challenge';
   if ((status && status >= 500) || /something went wrong|try reloading/i.test(text)) return 'search_error';
   return null;
 }
@@ -76,7 +76,8 @@ export async function collectSearch(page: Page, spec: SearchSpec, config: Crawle
         for (let scroll = 0; scroll <= spec.maxScrolls; scroll++) {
           const body = await page.evaluate(() => {
             const clone = document.body.cloneNode(true) as HTMLElement;
-            clone.querySelectorAll('article').forEach(a => a.remove());
+            // Exclude posts and embedded application state from checkpoint detection.
+            clone.querySelectorAll('article, script, style, noscript, template, [hidden], [aria-hidden="true"]').forEach(a => a.remove());
             return clone.textContent || '';
           });
           const failure = networkFailure || classifySearchFailure(page.url(), body, response?.status());

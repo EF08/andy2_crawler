@@ -31,6 +31,9 @@ async function main() {
     assert.equal(classifySearchFailure('https://x.com/i/flow/login', ''), 'login_failure');
     assert.equal(classifySearchFailure('', '', 429), 'rate_limited');
     assert.equal(classifySearchFailure('', 'Verify you are human'), 'access_challenge');
+    assert.equal(classifySearchFailure('', 'Your account has been locked.'), 'access_challenge');
+    assert.equal(classifySearchFailure('', '', 403), 'access_challenge');
+    assert.equal(classifySearchFailure('', 'Accounting Debate: locked forecasts'), null);
     assert.equal(classifySearchFailure('', 'No results for HBM'), null);
     // Exercise collector via intercepted pages, never login or network requests.
     await page.route('https://x.com/**', route => route.fulfill({ contentType: 'text/html', body: '<div role="tab" aria-selected="true">Latest</div><div>No results for impossible-query</div>' }));
@@ -49,8 +52,9 @@ async function main() {
     assert.equal(login.status, 'login_failure');
     assert.equal(login.attempts, 1);
     await page.unroute('https://x.com/**');
-    await page.route('https://x.com/**', route => route.fulfill({ contentType: 'text/html', body: '<div role="tab" aria-selected="true">Latest</div>' + Array.from({length: 5}, (_, i) => `<article><a href="/test/status/${1000+i}"><time datetime="2026-09-09T00:00:00Z"></time></a><div data-testid="tweetText">HBM ${i}</div></article>`).join('') }));
+    await page.route('https://x.com/**', route => route.fulfill({ contentType: 'text/html', body: '<div role="tab" aria-selected="true">Latest</div><aside>Accounting Debate</aside><script type="application/json">{"account":{"locked":false},"message":"Verify you are human"}</script>' + Array.from({length: 5}, (_, i) => `<article><a href="/test/status/${1000+i}"><time datetime="2026-09-09T00:00:00Z"></time></a><div data-testid="tweetText">HBM ${i}</div></article>`).join('') }));
     const budget = await collectSearch(page, { ...spec, maxPosts: 3 }, config, store, 'fixture-budget', true);
+    assert.equal(budget.status, 'success');
     assert.equal(budget.collected, 3);
     assert.equal(budget.truncated, true);
     assert.equal(budget.stopReason, 'max_posts');
