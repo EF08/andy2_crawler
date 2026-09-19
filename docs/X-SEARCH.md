@@ -60,6 +60,7 @@ Before the changes, `crawler_run_now` with an `x.com/search?...&f=live` target c
 ## Validation
 
 - `npm run build`
+- `npx tsx src/scripts/test-search-failures.ts`: document HTTP failures, page error signals, rate-limit retry suppression, and SearchTimeline HTTP failure followed by successful recovery. Reports retain each failed attempt in `failures`, including when the retry succeeds. Error details contain only detector phrases and HTTP codes, not raw page or response content.
 - `npx tsx src/scripts/test-search.ts`: long text, primary versus quoted IDs, native quoted-post context, direct URLs, source links, UTC cutoff, exact post cap, zero results, login failure, rate limiting, parsing failure, bounded retry.
 - Backend: `node --env-file=.env scripts/test-crawler-search.js`: isolated DB tests for idempotency, concurrent queue claims, pagination, response budgets, edits after an old receipt, independent consumers, missing reports/timeouts, and real MCP SDK schemas.
 - The broad `npm run smoke` currently fails on its existing Reddit fixture (`Reddit adapter should capture comments`). The same failure was reproduced using the pre-change X adapter and smoke test. Reddit and Bloomberg extraction code was not changed. This is not a passing regression check.

@@ -13,7 +13,21 @@ export type SearchHealth = {
   startedAt: string; finishedAt: string; status: string; error: string | null;
   collected: number; newestPostTimestamp: string | null; truncated: boolean;
   stopReason: string; attempts: number; latestSelected: boolean; sourceUrl: string;
+  failures: { attempt: number; status: string; detail: string }[];
 };
+class SearchFailure extends Error {
+  constructor(readonly status: string, detail: string) { super(`${status}: ${detail}`); }
+}
+function detectedFailure(url: string, text: string, status: number | undefined, source: string): SearchFailure | null {
+  const kind = classifySearchFailure(url, text, status);
+  if (!kind) return null;
+  // Persist only fixed detector phrases and status codes, never page text or response bodies.
+  const signal = text.match(/rate limit|too many requests|exceeded.*limit|sign in to x|log in to x|verify you are human|unusual activity|authenticate your account|something went wrong|try reloading/i)?.[0];
+  const detail = status && status >= 400 ? `${source} HTTP ${status}`
+    : /\/i\/flow\/login|\/login(?:\?|$)/.test(url) ? 'login redirect'
+    : `page signal: ${signal?.toLowerCase().replace(/exceeded.*limit/i, 'exceeded limit') ?? kind}`;
+  return new SearchFailure(kind, detail);
+}
 export function searchUrl(query: string, since?: string): string {
   // Web search's date operator has day resolution. Apply exact UTC cutoff again after extraction.
   const effective = since ? `(${query}) since:${new Date(since).toISOString().slice(0, 10)}` : query;
@@ -33,16 +47,20 @@ export async function collectSearch(page: Page, spec: SearchSpec, config: Crawle
     query: spec.query, effectiveQuery: new URL(url).searchParams.get('q')!, profile: spec.profile,
     jobId: config.searchJobId, runId, sourceUrl: url, startedAt: new Date().toISOString(), finishedAt: '',
     status: 'parsing_failure', error: null, collected: 0, newestPostTimestamp: null,
-    truncated: false, stopReason: '', attempts: 0, latestSelected: false,
+    truncated: false, stopReason: '', attempts: 0, latestSelected: false, failures: [],
   };
   const posts = new Map<string, ContentItem>();
   const availableText = new Map<string, ContentItem>();
   const pendingResponses = new Set<Promise<void>>();
-  let networkFailure: string | null = null;
+  let networkFailure: SearchFailure | null = null;
   // Observe only status codes from the search the logged-in UI itself requests. No credentials or API replay.
   const responseHandler = (res: Response) => {
     if (!/SearchTimeline/.test(res.url())) return;
-    if (res.status() >= 400) { networkFailure = classifySearchFailure('', '', res.status()) || 'search_error'; return; }
+    if (res.status() >= 400) {
+      networkFailure = detectedFailure('', '', res.status(), 'SearchTimeline')
+        ?? new SearchFailure('search_error', `SearchTimeline HTTP ${res.status()}`);
+      return;
+    }
     // Read only tweet text/entities already delivered to the browser. Never persist raw
     // responses, request headers, cookies, account state, or credentials.
     const pending = (async () => {
@@ -80,8 +98,8 @@ export async function collectSearch(page: Page, spec: SearchSpec, config: Crawle
             clone.querySelectorAll('article, script, style, noscript, template, [hidden], [aria-hidden="true"]').forEach(a => a.remove());
             return clone.textContent || '';
           });
-          const failure = networkFailure || classifySearchFailure(page.url(), body, response?.status());
-          if (failure) throw new Error(failure);
+          const failure = networkFailure || detectedFailure(page.url(), body, response?.status(), 'document');
+          if (failure) throw failure;
           const selected = await page.locator('[role="tab"][aria-selected="true"]').allTextContents();
           health.latestSelected = selected.some(t => /^Latest$/i.test(t.trim()));
           if (!health.latestSelected) throw new Error('latest_tab_failure');
@@ -128,8 +146,10 @@ export async function collectSearch(page: Page, spec: SearchSpec, config: Crawle
         break;
       } catch (err) {
         const message = (err as Error).message;
-        health.status = /^(rate_limited|login_failure|access_challenge|search_error|parsing_failure|latest_tab_failure)$/.test(message) ? message : 'navigation_failure';
+        health.status = err instanceof SearchFailure ? err.status
+          : /^(rate_limited|login_failure|access_challenge|search_error|parsing_failure|latest_tab_failure)$/.test(message) ? message : 'navigation_failure';
         health.error = message.slice(0, 500);
+        health.failures.push({ attempt: health.attempts, status: health.status, detail: health.error });
         health.stopReason = health.status;
         health.truncated = posts.size > 0;
         if (['login_failure', 'access_challenge', 'rate_limited'].includes(health.status) || attempt === 1 || Date.now() - started >= spec.timeoutMs) break;
