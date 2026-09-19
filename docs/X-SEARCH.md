@@ -59,6 +59,25 @@ Before the changes, `crawler_run_now` with an `x.com/search?...&f=live` target c
 
 ## Validation
 
+### Search diagnostics
+
+The agent log emits `[search-attempt]` JSON events when each attempt starts and
+finishes. Match events by `runId`, `jobId`, query, and attempt number. A start
+without a finish identifies an interrupted attempt. Finished events include the
+phase, duration, document HTTP status, SearchTimeline response statuses, bounded
+network error codes, last extraction counts, collected count, Latest-tab state,
+and planned retry delay. Requests are associated with the attempt that started
+them, so late responses from an earlier attempt cannot fail a retry.
+
+The final `[search]` record and local search report retain `attemptDetails`, total
+`durationMs`, and `recovered` (a failed attempt followed by success or zero results).
+These diagnostics are local; remote consumers may expose only the existing health
+fields. HTTP and page failures use fixed signals; browser exceptions use safe
+categories and network codes. No headers, cookies, raw response bodies, screenshots,
+or arbitrary browser exception text are added to logs.
+
+### Checks
+
 - `npm run build`
 - `npx tsx src/scripts/test-search-failures.ts`: document HTTP failures, page error signals, rate-limit retry suppression, and SearchTimeline HTTP failure followed by successful recovery. Reports retain each failed attempt in `failures`, including when the retry succeeds. Error details contain only detector phrases and HTTP codes, not raw page or response content.
 - `npx tsx src/scripts/test-search.ts`: long text, primary versus quoted IDs, native quoted-post context, direct URLs, source links, UTC cutoff, exact post cap, zero results, login failure, rate limiting, parsing failure, bounded retry.

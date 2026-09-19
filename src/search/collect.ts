@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { Page, Response } from "playwright";
+import { Page, Request, Response } from "playwright";
 import { CrawlerConfig } from "../config/types";
 import { XAdapter } from "../sites/x.adapter";
 import { ContentItem } from "../sites/types";
@@ -8,12 +8,20 @@ import { JsonStore } from "../store/jsonStore";
 import { deliveredPost } from './deliveredPost';
 
 export type SearchSpec = CrawlerConfig["xSearches"][number];
+type SearchAttempt = {
+  attempt: number; startedAt: string; durationMs: number; phase: string;
+  status: string; documentStatus: number | null; searchResponses: number;
+  searchHttpStatuses: number[]; requestFailures: string[];
+  scroll: number; extracted: number; valid: number; collected: number;
+  latestSelected: boolean; retryInMs: number | null;
+};
 export type SearchHealth = {
   query: string; effectiveQuery: string; profile?: string; jobId?: string; runId: string;
   startedAt: string; finishedAt: string; status: string; error: string | null;
   collected: number; newestPostTimestamp: string | null; truncated: boolean;
   stopReason: string; attempts: number; latestSelected: boolean; sourceUrl: string;
   failures: { attempt: number; status: string; detail: string }[];
+  attemptDetails: SearchAttempt[]; durationMs: number; recovered: boolean;
 };
 class SearchFailure extends Error {
   constructor(readonly status: string, detail: string) { super(`${status}: ${detail}`); }
@@ -48,14 +56,37 @@ export async function collectSearch(page: Page, spec: SearchSpec, config: Crawle
     jobId: config.searchJobId, runId, sourceUrl: url, startedAt: new Date().toISOString(), finishedAt: '',
     status: 'parsing_failure', error: null, collected: 0, newestPostTimestamp: null,
     truncated: false, stopReason: '', attempts: 0, latestSelected: false, failures: [],
+    attemptDetails: [], durationMs: 0, recovered: false,
   };
   const posts = new Map<string, ContentItem>();
   const availableText = new Map<string, ContentItem>();
   const pendingResponses = new Set<Promise<void>>();
   let networkFailure: SearchFailure | null = null;
+  let diagnostic: SearchAttempt | null = null;
+  const requestAttempts = new WeakMap<Request, SearchAttempt>();
+  const requestHandler = (request: Request) => {
+    if (diagnostic) requestAttempts.set(request, diagnostic);
+  };
+  const logEvent = (event: string, details: object) => console.log('[search-attempt] ' + JSON.stringify({
+    event, timestamp: new Date().toISOString(), runId, jobId: config.searchJobId,
+    profile: spec.profile, query: spec.query, ...details,
+  }));
+  const requestFailedHandler = (request: Request) => {
+    if (!diagnostic || requestAttempts.get(request) !== diagnostic || (!/SearchTimeline/.test(request.url()) &&
+      !(request.isNavigationRequest() && request.frame() === page.mainFrame()))) return;
+    const source = /SearchTimeline/.test(request.url()) ? 'SearchTimeline' : 'document';
+    const code = request.failure()?.errorText.match(/\bnet::ERR_[A-Z_]+\b/)?.[0] ?? 'request_failed';
+    if (diagnostic.requestFailures.length < 10) diagnostic.requestFailures.push(`${source}: ${code}`);
+  };
   // Observe only status codes from the search the logged-in UI itself requests. No credentials or API replay.
   const responseHandler = (res: Response) => {
-    if (!/SearchTimeline/.test(res.url())) return;
+    if (!/SearchTimeline/.test(res.url()) || !diagnostic || requestAttempts.get(res.request()) !== diagnostic) return;
+    if (diagnostic) {
+      diagnostic.searchResponses++;
+      if (!diagnostic.searchHttpStatuses.includes(res.status()) && diagnostic.searchHttpStatuses.length < 10) {
+        diagnostic.searchHttpStatuses.push(res.status());
+      }
+    }
     if (res.status() >= 400) {
       networkFailure = detectedFailure('', '', res.status(), 'SearchTimeline')
         ?? new SearchFailure('search_error', `SearchTimeline HTTP ${res.status()}`);
@@ -82,16 +113,32 @@ export async function collectSearch(page: Page, spec: SearchSpec, config: Crawle
     void pending.finally(() => pendingResponses.delete(pending));
   };
   page.on('response', responseHandler);
+  page.on('request', requestHandler);
+  page.on('requestfailed', requestFailedHandler);
   const started = Date.now();
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
       health.attempts++;
       networkFailure = null;
+      health.latestSelected = false;
+      const attemptStarted = Date.now();
+      diagnostic = {
+        attempt: health.attempts, startedAt: new Date().toISOString(), durationMs: 0,
+        phase: 'navigation', status: 'running', documentStatus: null, searchResponses: 0,
+        searchHttpStatuses: [], requestFailures: [], scroll: 0, extracted: 0, valid: 0,
+        collected: posts.size, latestSelected: false, retryInMs: null,
+      };
+      health.attemptDetails.push(diagnostic);
+      logEvent('started', { attempt: health.attempts });
       try {
         const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: Math.min(config.behavior.navigationTimeoutMs, spec.timeoutMs) });
+        diagnostic.documentStatus = response?.status() ?? null;
+        diagnostic.phase = 'page_ready';
         await page.waitForTimeout(3000);
         let stalled = 0;
         for (let scroll = 0; scroll <= spec.maxScrolls; scroll++) {
+          diagnostic.scroll = scroll;
+          diagnostic.phase = 'page_signals';
           const body = await page.evaluate(() => {
             const clone = document.body.cloneNode(true) as HTMLElement;
             // Exclude posts and embedded application state from checkpoint detection.
@@ -100,11 +147,15 @@ export async function collectSearch(page: Page, spec: SearchSpec, config: Crawle
           });
           const failure = networkFailure || detectedFailure(page.url(), body, response?.status(), 'document');
           if (failure) throw failure;
+          diagnostic.phase = 'latest_tab';
           const selected = await page.locator('[role="tab"][aria-selected="true"]').allTextContents();
           health.latestSelected = selected.some(t => /^Latest$/i.test(t.trim()));
           if (!health.latestSelected) throw new Error('latest_tab_failure');
+          diagnostic.phase = 'extraction';
           const batch = await new XAdapter().extractBase(page, config.siteRules.xCom);
           const valid = batch.posts.filter(p => p.tweetId && p.url && p.timestamp && Number.isFinite(Date.parse(p.timestamp)));
+          diagnostic.extracted = batch.posts.length;
+          diagnostic.valid = valid.length;
           if (batch.posts.length && valid.length !== batch.posts.length) throw new Error('parsing_failure');
           const previous = posts.size;
           let older = 0;
@@ -138,29 +189,47 @@ export async function collectSearch(page: Page, spec: SearchSpec, config: Crawle
             health.stopReason = 'stalled'; health.truncated = true; break;
           }
           await page.evaluate(() => window.scrollBy(0, Math.max(500, innerHeight * 0.8)));
+          diagnostic.phase = 'scroll_wait';
           await page.waitForTimeout(1800);
         }
         if (!posts.size && health.stopReason !== 'no_results' && health.stopReason !== 'since_boundary') throw new Error('parsing_failure');
         health.status = posts.size ? 'success' : 'zero_results';
         health.error = null;
+        diagnostic.phase = 'complete';
         break;
       } catch (err) {
         const message = (err as Error).message;
         health.status = err instanceof SearchFailure ? err.status
           : /^(rate_limited|login_failure|access_challenge|search_error|parsing_failure|latest_tab_failure)$/.test(message) ? message : 'navigation_failure';
-        health.error = message.slice(0, 500);
+        // Playwright messages can contain URLs and page details; retain only a safe error category.
+        health.error = health.status === 'navigation_failure'
+          ? ((err as Error).name === 'TimeoutError' ? `timeout during ${diagnostic.phase}`
+            : message.match(/\bnet::ERR_[A-Z_]+\b/)?.[0] ?? `browser failure during ${diagnostic.phase}`)
+          : message.slice(0, 500);
         health.failures.push({ attempt: health.attempts, status: health.status, detail: health.error });
         health.stopReason = health.status;
         health.truncated = posts.size > 0;
         if (['login_failure', 'access_challenge', 'rate_limited'].includes(health.status) || attempt === 1 || Date.now() - started >= spec.timeoutMs) break;
-        await page.waitForTimeout(5000); // one bounded retry, never retry a challenge or rate limit
+        diagnostic.retryInMs = 5000;
+      } finally {
+        diagnostic.durationMs = Date.now() - attemptStarted;
+        diagnostic.status = health.status;
+        diagnostic.collected = posts.size;
+        diagnostic.latestSelected = health.latestSelected;
+        logEvent('finished', { ...diagnostic, error: health.error });
+        diagnostic = null;
       }
+      await page.waitForTimeout(5000); // one bounded retry, never retry a challenge or rate limit
     }
   } finally {
     page.off('response', responseHandler);
+    page.off('request', requestHandler);
+    page.off('requestfailed', requestFailedHandler);
     await Promise.race([Promise.allSettled([...pendingResponses]), page.waitForTimeout(1000)]);
   }
   health.finishedAt = new Date().toISOString();
+  health.durationMs = Date.now() - started;
+  health.recovered = health.failures.length > 0 && ['success', 'zero_results'].includes(health.status);
   health.collected = posts.size;
   health.newestPostTimestamp = [...posts.values()].map(p => p.timestamp!).sort().at(-1) ?? null;
   const snapshots: CrawlSnapshot[] = [...posts.values()].map(post => ({

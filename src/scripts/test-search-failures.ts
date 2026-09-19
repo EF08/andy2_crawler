@@ -21,6 +21,10 @@ async function main() {
     assert.equal(server.status, 'search_error');
     assert.equal(server.attempts, 2);
     assert.match(server.error!, /document HTTP 503/);
+    assert.equal(server.attemptDetails[0].documentStatus, 503);
+    assert.equal(server.attemptDetails[0].retryInMs, 5000);
+    assert.equal(server.attemptDetails[1].retryInMs, null);
+    assert.equal(server.recovered, false);
     status = 200;
     const ui = await run();
     assert.equal(ui.status, 'search_error');
@@ -52,6 +56,25 @@ async function main() {
     assert.equal(recovered.attempts, 2);
     assert.equal(recovered.error, null);
     assert.deepEqual(recovered.failures, [{ attempt: 1, status: 'search_error', detail: 'search_error: SearchTimeline HTTP 503' }]);
+    assert.equal(recovered.recovered, true);
+    assert.deepEqual(recovered.attemptDetails.map(a => a.searchHttpStatuses), [[503], [200]]);
+    assert.equal(recovered.attemptDetails[1].phase, 'complete');
+    assert.equal(recovered.attemptDetails[1].valid, 1);
+    assert.equal(recovered.attemptDetails[1].latestSelected, true);
+    assert.deepEqual(recovered.attemptDetails[1].requestFailures, []);
+    assert.ok(recovered.durationMs >= recovered.attemptDetails.reduce((n, a) => n + a.durationMs, 0));
+    page.goto = goto;
+    await page.unroute('https://x.com/**');
+    await page.route('https://x.com/**', route => route.abort('connectionreset'));
+    const disconnected = await run();
+    assert.equal(disconnected.status, 'navigation_failure');
+    assert.equal(disconnected.attemptDetails[0].phase, 'navigation');
+    assert.ok(disconnected.attemptDetails[0].requestFailures.includes('document: net::ERR_CONNECTION_RESET'));
+    assert.equal(disconnected.error, 'net::ERR_CONNECTION_RESET');
+    page.goto = async () => { throw new Error('browser details https://example.com/?secret=DO_NOT_LOG'); };
+    const redacted = await run();
+    assert.equal(redacted.error, 'browser failure during navigation');
+    assert.ok(!JSON.stringify(redacted).includes('DO_NOT_LOG'));
     console.log('Search failure evidence assertions passed.');
   } finally { await browser.close(); }
 }
