@@ -1,6 +1,8 @@
 # Targeted X Latest searches
 
-`hynix-watch` is included in hourly main gathers alongside the existing timelines and public news. Each of its six queries has its own 30-post budget. Timeline character budgets cannot consume search capacity. No new browser, login, daemon, paid service, or scheduler is required.
+As of 2026-09-22 UTC, scheduled `hynix-watch` collection is retired: the saved profile has `enabled: false` and is excluded from subsequent hourly main gathers. Existing collected data and on-demand search tools remain available. Disabling the profile does not cancel searches already attached to a running job or change the timeline and public-news schedules.
+
+The following documents the retained search capability. When explicitly enabled, each of the profile's six queries has its own 30-post budget. Timeline character budgets cannot consume search capacity. No new browser, login, daemon, paid service, or scheduler is required.
 
 The backend implementation is in `C:/Users/andyf/a1a2-command-center/apps/crawler/{search.js,searchMcp.js}`. The remote MCP remains `https://a1a2-command-center.onrender.com/api/crawler/mcp`, with its existing OAuth authentication. Refresh tool discovery in clients that cache the tool list. The full generated JSON schemas are in [crawler-search-tool-schemas.json](crawler-search-tool-schemas.json).
 
